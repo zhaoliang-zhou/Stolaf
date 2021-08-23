@@ -1,2 +1,2 @@
 # Stolaf
-Course materials and TA materials from St. Olaf College
+MAterials (course, TA, competition, etc) from St. Olaf College
