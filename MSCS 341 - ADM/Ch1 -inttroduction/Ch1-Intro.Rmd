@@ -1,0 +1,647 @@
+---
+title: "Intro to ADM"
+author: "Matt Richey"
+date: "2/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the usual libraries. The FNN library is used later.
+```{r IntroChuck, message=FALSE}
+library(tidyverse)
+library(lubridate)
+library(FNN)
+```
+# Introduction
+Let's do a quick tour of some introductory concepts and programming. The data will come from the [Minneapolis Open Data Portal](http://opendata.minneapolismn.gov/). In particular, we'll look at the Police Incidents from 2017 and 2019. The goal is to try to predict the number of theft incidents as a function of the time of  day.  We will use one year (2019) as the "training" data and then see how it works on the other year (2017).
+
+# Set up
+Define some global variables
+```{r}
+workDir <- "/Users/richeym/Dropbox/COURSES/ADM/ADM_S20"
+codeDir <- "CODE/Chap01"
+dataDir <- "DATA"
+
+dataFile17 <- "Police_Incidents_2017.csv"
+dataFile19 <- "Police_Incidents_2019.csv"
+luFile <- "OffenseLU.csv"
+```
+Load the data. There's a little cleanup to do in order to get everything looking ok
+
+
+```{r}
+data17.df0 <- read.csv(file.path(workDir,dataDir,dataFile17))
+data19.df0 <- read.csv(file.path(workDir,dataDir,dataFile19))
+                      
+```
+The data, as always, needs a little work in order to suit  our purposes. Specifically,
+
+* The date+time format field needs to be modified
+* The "offense" field needs to be renamed to match the two years. As well, the offenses need to be aggregated into broader categories. For example, there are  about 20 different classification that  correspond to a Theft of some kind. 
+
+```{r}
+with(data17.df0,unique(Offense))
+```
+Clean this up  via a lookup table.
+
+```{r}
+cat.df <- read.csv(file.path(workDir,dataDir,luFile)) %>% 
+  mutate(offense=trimws(as.character(offense)),
+         offense=as.character(offense)) ##trim whitespace
+
+```
+
+Now we can clean up the data files from 2017 and 2019.
+```{r, message=FALSE}
+data17.df <-  data17.df0 %>% 
+  mutate(time0=hms::as.hms(ymd_hms(ReportedDate)),
+         hour=hour(time0),
+         minute=minute(time0),
+         time=hour+minute/60) %>% 
+  select(time,Offense) %>% 
+  rename(offense=Offense) %>% 
+  inner_join(cat.df,by="offense")
+```
+Do the same for the 2019 data. As is often (always?) the case, there are minor differences in field names between the two years (e.g. reportedDateTime vs ReportedDate).
+```{r}
+data19.df <-  data19.df0 %>% 
+  mutate(time0=hms::as.hms(ymd_hms(reportedDateTime)),
+         hour=hour(time0),
+         minute=minute(time0),
+         time=hour+minute/60) %>%
+  mutate(offense=trimws(as.character(offense))) %>% 
+  select(time,offense) %>% 
+  inner_join(cat.df,by="offense")
+```
+
+Take a quick look (via View) to make sure things look okQuick look
+
+```{r}
+data19.df %>%
+  group_by(category) %>% 
+  summarize(tot=n())
+
+```
+The times are pretty scattered. It's helpful to discretize the counts by fixed time blocks, say every 1/10 of an hour (6 minutes).
+
+
+```{r}
+data19.df <- data19.df %>% 
+  mutate(time2=cut_interval(time,240,
+                            labels=as.numeric(1:240)/10)) %>% 
+   mutate(time2=as.numeric(as.character(time2))) %>% 
+  group_by(time2,category) %>% 
+  summarize(tot=n()) %>% 
+  rename(time=time2)
+```
+
+```{r}
+data19.df %>%
+  ggplot()+
+  geom_point(aes(time,tot),size=.5)+
+  facet_wrap(~category,scales="free_y")+
+  ggtitle(sprintf("Numbers of Occurences by Category: %s","2019"))
+
+```
+
+Similary for 2017....
+First discretize the times.
+```{r}
+data17.df <- data17.df %>% 
+  mutate(time2=cut_interval(time,240,
+                            labels=as.numeric(1:240)/10)) %>% 
+  mutate(time2=as.numeric(as.character(time2))) %>% 
+  group_by(time2,category) %>% 
+  summarize(tot=n()) %>% 
+  rename(time=time2)
+```
+And the plot
+```{r}
+year <- 2017
+data19.df %>%
+  ggplot()+
+  geom_point(aes(time,tot),size=.5)+
+  facet_wrap(~category,scales="free_y")+
+  ggtitle(sprintf("Numbers of Occurences by Category: %s",year))
+```
+
+From here on, we will only focus on Thefts.
+
+```{r}
+data17.df <- data17.df %>%
+  filter(category=="Theft") %>% 
+  mutate(year="2017")
+data19.df <- data19.df %>%
+  filter(category=="Theft") %>% 
+  mutate(year="2019")
+
+bind_rows(data17.df,data19.df) %>% 
+    ggplot()+
+    geom_point(aes(time,tot,color=year))
+  
+```
+
+It appears that the number of Thefts by time  follows a consistent pattern between 2017 and 2019. 
+
+# Predictive Analytics
+
+The goal of predictive analytics is to analytically predict what is going to happen. The pattern is usually as follows.
+
+ * There is a data set from which you build ("train") a model. Linear regression is  one example of a predictive model.
+ * There is another data set on which you run ("test") the model. 
+ * You hope that a well-trained model will do a decent job of prediction on the test data.
+ * Later, new data comes along. At this point you are deploying the model on new data. At any point, you can retrain (and retest) your model. 
+ 
+ ## Simple Ordinary Least Squares Regression
+Later, we will talk more  about the details of this approach. For now, let's just assume we can build a linear model using *R*'s  **lm** function. 
+
+For now good reason, I'm  going to train using the 2019 data and retrospectively test on the 2017 data.
+
+```{r}
+train.df <- data19.df %>% 
+  filter(category=="Theft") %>% 
+  select(time,tot)
+test.df <- data17.df %>% 
+  filter(category=="Theft") %>% 
+    select(time,tot)
+```
+Here is just about the simplest possible model (there are some models which are even simpler...can you think of one?).
+
+```{r}
+mod.lm1 <- lm(tot~time,data=train.df)
+summary(mod.lm1)
+
+```
+Most (not all) R functions have a overloaded predict function. By default, it predicts the values of the data on which the model was built.
+```{r}
+train.df$lm1 <- predict(mod.lm1)
+
+```
+
+
+```{r}
+year <- 2019
+
+train.df %>% 
+  gather(type,tot,2:3) %>%
+   mutate(type=factor(type,levels=c("tot","lm1")))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+ labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+
+```
+Not much to look at, but we can still analyze it a bit. 
+
+To start, we can evaluate a "loss" function. In this case, and pretty much throughout the semester, we will use the "squared error" loss function. This is simply the sum of the square of the residuals.
+
+Often, we use the  Mean Squared Error (MSE) loss. For $N$ predictions
+this means
+$$MSE=\frac{1}{N}\sum_{i=1}^N (\hat y_i-y_i)^2$$
+where $y_i$ are the actual values $\hat y_i$ are the predicted values. 
+
+In R, this is easy to do.
+
+```{r}
+(mse1.train=with(train.df,mean((lm1-tot)^2)))
+
+```
+This quantity isn't meaningful for a couple reasons. We are always more interested performance on the test data, not the training data. As well, it's hard to know if `r round(mse1.train,1)` is large or small, i.e., we always want to know  "compared to what?"
+
+What is corresponding situation on the test data? 
+
+```{r}
+test.df$lm1 <- predict(mod.lm1,newdata=test.df)
+```
+
+```{r}
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:3) %>% 
+  mutate(type=factor(type,levels=c("tot","lm1")))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```
+
+```{r}
+(mse1.test=with(test.df,mean((lm1-tot)^2)))
+c(mse1.train,mse1.test)
+```
+OK, a little larger but in the same ballpark. 
+
+## More Model  Flexibility: Quadratic Term
+A linear model is clearly suboptimal here. A simple way to the non-linear shape of the data is to add higher order terms to the model.
+
+Here's some syntax to add a quadratic term to the model
+```{r}
+mod.lm2 <- lm(tot~time+
+                I(time^2),
+              data=train.df)
+summary(mod.lm2)
+```
+
+How's it look. Note that the levels of the factors are staying in the same order.
+```{r}
+train.df$lm2 <- predict(mod.lm2)
+
+ train.df %>% 
+  gather(type,tot,2:4) %>% 
+  mutate(type=factor(type,levels=c("tot",paste0("lm",1:2))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```
+
+Clearly, the quadratic model works better. To confirm, compute the mse again.
+
+
+```{r}
+train.df$lm2 <- predict(mod.lm2)
+(mse2.train=with(train.df,mean((lm2-tot)^2)))
+c(mse1.train,mse2.train)
+```
+This cuts the mse down significantly. 
+Now repeat on the test data.
+```{r}
+test.df$lm2 <- predict(mod.lm2,newdata=test.df)
+(mse2.test=with(test.df,mean((lm2-tot)^2)))
+c(mse1.test,mse2.test)
+```
+
+Again, an improvement. It's not as dramatic as with the training data, but still a better fit.
+
+```{r}
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:4) %>% 
+  mutate(type=factor(type,levels=c("tot",paste0("lm",1:2))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```
+
+
+## More Model  Flexibility: Cubic Term
+
+ Don't stop now, add a cubic term.
+ 
+ 
+```{r}
+mod.lm3 <- lm(tot~time+
+                I(time^2)+
+                I(time^3),
+              data=train.df)
+summary(mod.lm3)
+train.df$lm3 <- predict(mod.lm3)
+```
+
+```{r}
+train.df$lm3 <- predict(mod.lm3)
+(mse3.train=with(train.df,mean((lm3-tot)^2)))
+c(mse1.train,mse2.train,mse3.train)
+```
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:5) %>% 
+  mutate(type=factor(type,levels=c("tot",paste0("lm",1:3))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```
+
+
+Predict on the test data.
+```{r}
+test.df$lm3 <- predict(mod.lm3,newdata=test.df)
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:5) %>% 
+  mutate(type=factor(type,levels=c("tot",paste0("lm",1:3))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```
+
+```{r}
+(mse3.test=with(test.df,mean((lm3-tot)^2)))
+c(mse1.test,mse2.test,mse3.test)
+c(mse1.train,mse2.train,mse3.train)
+```
+ 
+ ## Even More Flexibility: Keep going!
+ 
+ Heck, why not keep going. How about a 12th degree fit?
+ 
+```{r}
+mod.lm12 <- lm(tot~time+
+                I(time^2)+
+                I(time^3)+
+                I(time^4)+
+                I(time^5)+
+                I(time^6)+
+                I(time^7)+
+                I(time^8)+
+                I(time^9)+
+                I(time^10)+
+                I(time^11)+
+                I(time^12),
+              data=train.df)
+train.df$lm12 <- predict(mod.lm12)
+```
+ 
+ 
+ 
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:6) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("lm",c(1:3,12)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```
+
+ How about the error?
+```{r}
+(mse12.train <- with(train.df,mean((tot-lm12)^2)))
+```
+ Pretty darned small. 
+ 
+ Apply the model to the test data.
+ 
+ 
+```{r}
+test.df$lm12 <- predict(mod.lm12,newdata=test.df)
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:6) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("lm",c(1:3,12)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```
+
+```{r}
+(mse12.test=with(test.df,mean((lm12-tot)^2)))
+c(mse1.test,mse2.test,mse3.test,mse12.test)
+c(mse1.train,mse2.train,mse3.train,mse12.train)
+```
+ 
+ We're starting to see the different between predicting the training data versus predicting the test data. As we add more terms, the error on the training data decreases dramatically. If we keep going, we will see the test error start to increase. In any bcase, we're starting to see diminishing returns with the test data. This is a common feature of the train+test scenario. 
+ 
+ 
+ # K Nearest Neighbor Modeling
+ There are many other ways to build a prediction model. One very popular and easy to understand model in the K Nearest Neighbor (KNN) model. 
+ 
+ The idea is simple. For any input value, find the k (=10, say)  nearest neighbors and use the average of their response variables as your prediction.
+ 
+ R, of course, has a built in knn function. In this case, since we are making a quantitative prediction, we'll use the knn.reg  (for "regression") function.
+ 
+ ## Training data.
+ Sadly, knn.reg is an older function so you have to be very careful with the structure of the inputs.
+ 
+ Let's reload all the data
+ 
+```{r}
+data17.df <- data17.df[c("time","tot")]
+data19.df <- data19.df[c("time","tot")]
+train.df <- data19.df
+test.df <- data17.df
+```
+
+Here's  the plan. We pull of the train and testing inputs (train.X and test.X) and the training responses (train.Y). Then knn.reg
+```{r}
+train.X <- as.matrix(train.df[c("time")])
+test.X <- as.matrix(train.df[c("time")])
+train.Y <- as.matrix(train.df[c("tot")])
+```
+
+These feed into knn.reg. We'll start by predicting the training data
+using the training data.
+
+Use 25 nearest neighb
+```{r}
+kNear <- 75
+mod.knn <- knn.reg(train.X,
+                  train.X,
+                  train.Y,
+                   k=kNear)
+
+```
+  
+```{r}
+train.df$knn75 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:3) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```
+
+We see that KNN is a bit funky near the boundaries since it tries to use symmetric neighborhoods. In any case, we get a reasonable fit near the center. The model picks up the max near time=7. 
+  
+How about the error?
+
+```{r}
+(mse.train.knn75 <- with(train.df,mean((tot-knn75)^2)))
+```
+Ok, but compared to what? How about on the test data?
+```{r}
+kNear <- 75
+mod.knn <- knn.reg(train.X,
+                  test.X,  ## <- use test data here
+                  train.Y,
+                   k=kNear)
+test.df$knn75 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:3) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```
+  
+MSE
+
+```{r}
+(mse.test.knn75 <- with(test.df,mean((tot-knn75)^2)))
+```
+Hmmm...larger.  This is what we saw with the linear model.
+
+##  More KNN flexibility:  Fewer neighbors
+The analog of adding more terms to the linear model is to use fewer nearest neighbors in KNN.
+
+Let's try 25
+```{r}
+kNear <- 25
+mod.knn <- knn.reg(train.X,
+                  train.X,
+                  train.Y,
+                   k=kNear)
+train.df$knn25 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:4) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75,25)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type))+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```  
+
+While we are at it, let's build a few more.
+```{r}
+kNear <- 10
+mod.knn <- knn.reg(train.X,
+                  train.X,
+                  train.Y,
+                   k=kNear)
+train.df$knn10 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:5) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75,25,10)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type),size=.5)+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```  
+
+As before with the linear model and more terms, we are clearly seeing a better and better fit.
+
+One more...
+```{r}
+kNear <- 5
+mod.knn <- knn.reg(train.X,
+                  train.X,
+                  train.Y,
+                   k=kNear)
+train.df$knn5 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+train.df %>% 
+  gather(type,tot,2:6) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75,25,10,5)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type),size=.5)+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Train")
+```  
+
+It's getting hard to see, but the knn5 is really a tight fit to the original data. It figures, since we are only depending on a very few neighbors!
+
+The MSE values.
+
+```{r}
+mse.train.knn25 <- with(train.df,mean((tot-knn25)^2))
+mse.train.knn10 <- with(train.df,mean((tot-knn10)^2))
+mse.train.knn5 <- with(train.df,mean((tot-knn5)^2))
+c(mse.train.knn75, mse.train.knn25,mse.train.knn10,mse.train.knn5)
+
+```
+A pretty dramatic reduction in error!
+
+Now onto the test data. 
+
+
+
+```{r}
+kNear <- 25
+mod.knn <- knn.reg(train.X,
+                  test.X,  ## <- use test data here
+                  train.Y,
+                   k=kNear)
+test.df$knn25 <- mod.knn$pred
+
+kNear <- 10
+mod.knn <- knn.reg(train.X,
+                  test.X,  ## <- use test data here
+                  train.Y,
+                   k=kNear)
+test.df$knn10 <- mod.knn$pred
+
+kNear <- 5
+mod.knn <- knn.reg(train.X,
+                  test.X,  ## <- use test data here
+                  train.Y,
+                   k=kNear)
+test.df$knn5 <- mod.knn$pred
+```
+
+Now the plot.
+```{r}
+year <- 2017
+test.df %>% 
+  gather(type,tot,2:6) %>% 
+  mutate(type=factor(type,
+                     levels=c("tot",paste0("knn",c(75,25,10,5)))))%>% 
+  ggplot()+
+  geom_point(aes(time,tot,color=type),size=.5)+
+  labs(title=sprintf("Predict Theft Counts by Time of Day: %s",year),
+              subtitle="Test")
+```  
+
+
+The MSE values.
+
+```{r}
+mse.test.knn25 <- with(test.df,mean((tot-knn25)^2))
+mse.test.knn10 <- with(test.df,mean((tot-knn10)^2))
+mse.test.knn5 <- with(test.df,mean((tot-knn5)^2))
+c(mse.test.knn75, mse.test.knn25,mse.test.knn10,mse.test.knn5)
+
+```
+
+Wow, in this case, the test MSE is starting to go back up as the model fits the training data better and better.
+```{r}
+c(mse.train.knn75, mse.train.knn25,mse.train.knn10,mse.train.knn5)
+c(mse.test.knn75, mse.test.knn25,mse.test.knn10,mse.test.knn5)
+```
+
+```
+
+# Conclusion
+The moral of the story....fiting training data is easy, fitting testing data is hard. 

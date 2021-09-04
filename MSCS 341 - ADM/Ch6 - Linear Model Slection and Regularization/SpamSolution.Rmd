@@ -1,0 +1,341 @@
+---
+title: "Spam"
+author: "Matt Richey"
+date: "4/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(class)
+library(glmnet)
+library(class)
+```
+
+# The question
+
+1) What is the best  model for predicting Spam?
+
+2) What about True Positives vs True Negatives? These are not necessarily equally bad. Build a defensible cost matrix for spam detection and build the best model for minimizing the cost of spam.
+
+
+# Data
+```{r}
+dataDir <- "/Users/richeym/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap06"
+dataFile <- "SpamData.csv"
+spam.df <- read.csv(file.path(dataDir,dataFile))
+head(spam.df)
+```
+
+
+
+
+# Penalized Regression
+Start with  penalized regression
+
+Build the data
+```{r}
+names(spam.df)
+with(spam.df,table(IsSpam))
+numPreds <- ncol(spam.df)-1
+spam.x <- data.matrix(spam.df[,1:numPreds])
+spam.y <- data.matrix(spam.df[,-(1:numPreds)])
+```
+
+
+```{r}
+lambda.grid <- 10^seq(-5,1,length=50)
+ridge.cv <- cv.glmnet(spam.x,spam.y,
+                      lambda=lambda.grid,
+                      family="binomial",
+                      type.measure="class",
+                      alpha=0)
+```
+
+```{r}
+plot(ridge.cv)
+```
+
+```{r}
+lambda.opt <- ridge.cv$lambda.1se
+id <- with(ridge.cv,which(lambda==lambda.opt))
+(err.ridge <- with(ridge.cv,cvm[id]))
+```
+
+Repeat with Lasso
+```{r}
+lasso.cv <- cv.glmnet(spam.x,spam.y,
+                      lambda=lambda.grid,
+                      family="binomial",
+                      type.measure="class",
+                      alpha=1)
+plot(lasso.cv)
+lambda.opt <- lasso.cv$lambda.1se
+id <- with(lasso.cv,which(lambda==lambda.opt))
+(err.lasso <- with(lasso.cv,cvm[id]))
+
+```
+
+While  we are hear, see how many coefficients are nonzero? Remember there are 58 predictors
+```{r}
+lasso.cv$nzero[id]
+```
+Wow,  Lasso has only zero-ed out 6 or so coefficients.
+
+
+```{r}
+dim(spam.x)
+lasso.opt <- glmnet(spam.x,spam.y,
+                      lambda=lambda.opt,
+                      family="binomial",
+                      alpha=1)
+coefs <- coefficients(lasso.opt)
+lassoPreds <- which(coefs != 0)
+(lassoPreds <- lassoPreds[-1]-1)
+
+```
+What the heck, let's build a logistic regression model
+
+```{r}
+spam.red.df <- spam.df[,c(lassoPreds,ncol(spam.df))]
+## Build a train/test
+N <- nrow(spam.red.df)
+train <- sample(1:N,N/2,rep=F)
+train.df <- spam.red.df[train,]
+test.df <- spam.red.df[-train,]
+mod.log <- glm(IsSpam ~ ., data=train.df,
+               family="binomial")
+preds <- predict(mod.log,newdata=test.df,type="response") > 0.5
+with(test.df,table(IsSpam,preds))
+with(test.df,mean((IsSpam==1) != preds))
+```
+```{r}
+numFolds <- 10
+N <- nrow(spam.df)
+folds <- sample(1:numFolds,N,rep=T)
+errs <- numeric(numFolds)
+for(fold in 1:numFolds){
+  train.df <- spam.red.df[folds != fold,] 
+  test.df <- spam.red.df[folds == fold,] 
+  mod.log <- glm(IsSpam ~ ., 
+                 data=train.df,
+                 family="binomial")
+  preds <- predict(mod.log,
+                   newdata=test.df,type="response") > 0.5
+  errs[fold] <- with(test.df,mean((IsSpam==1) != preds))
+}
+c(mean(errs),sd(errs))
+errs
+(err.log <- mean(errs))
+```
+```{r}
+c(err.ridge,err.lasso,err.log)
+```
+The error for logistic regression with the reduced predictor setlooks slightly better, but we are troubled by the error messages from glm.
+
+
+#  KNN
+
+Check to see if the data  are scaled
+```{r}
+summary(apply(spam.x,2,mean))
+```
+Nope
+```{r}
+spam.x <- scale(spam.x)
+summary(apply(spam.x,2,mean))
+```
+Much better
+```{r}
+N <- nrow(spam.x)
+kVal <- 10
+knnERR_SE <- function(kVal,numFolds=10){
+  folds <- sample(1:numFolds,N,rep=T)
+  errs <- numeric(numFolds)
+  for(fold in 1:numFolds){
+    train.x <- spam.x[folds != fold,] 
+    train.y <- spam.y[folds != fold]
+    test.x <- spam.x[folds == fold,] 
+    test.y <-  spam.y[folds == fold]  
+    mod.knn <- knn(train.x,test.x,train.y,k=kVal)
+    length(mod.knn)
+    length(test.y)
+    table(mod.knn,test.y)
+    errs[fold] <- mean(mod.knn != test.y)
+  }
+  c(mean(errs),sd(errs))
+}
+## just the M
+knnERR <- function(kVal,numFolds=10){ knnERR_SE(kVal,numFolds)[1]}
+
+knnERR(1)
+knnERR(4)
+knnERR(10)
+knnERR(20)
+knnERR(30)
+```
+
+```{r}
+maxK <- 20
+kVals <- 1:maxK
+allErrs <- map_dbl(kVals,knnERR)
+```
+
+
+```{r}
+data.frame(k=kVals,err=allErrs) %>% 
+    ggplot()+
+    geom_point(aes(k,err))
+
+  
+```
+
+KNN appears to be having a real hard time. Part of the problem is the  large number of predictors.
+
+```{r}
+min(allErrs)
+```
+
+This error rate is not competitive with what we saw earlier.
+
+## Cost function
+Let's use the a cost function with the following  values.
+
+True Positive:   +10 (Spam gets blocked)
+True Negative:     0   (Real mail gets through)
+False  Postive:  -50 (Real mail  gets blocked)
+False Negative:  -10 (Spam gets through)
+
+```{r}
+true.pos <- -10
+true.neg <- 0
+false.pos <- 500
+false.neg <- 10
+
+addCost <- function(act,pred){
+  if(act & pred)
+    return(true.pos)
+  if(act & !pred)
+    return(false.neg)
+  if(!act & pred)
+    return(false.pos)
+  if(!act & !pred)
+    return(true.neg)
+}
+## Check    
+addCost(FALSE,TRUE)
+addCost(TRUE,FALSE)
+addCost(TRUE,TRUE)
+addCost(FALSE,FALSE)
+```
+
+We'll use penalized regression to build the probability model. 
+
+Of course, we'll use the train/test data
+
+```{r}
+N <- nrow(spam.df)
+train <- sample(1:N,N/2,rep=F)
+train.df <- spam.df[train,]
+test.df <- spam.df[-train,]
+
+train.x <- data.matrix(train.df[,1:numPreds])
+train.y <- data.matrix(train.df[,-(1:numPreds)])
+test.x <- data.matrix(test.df[,1:numPreds])
+test.y <- data.matrix(test.df[,-(1:numPreds)])
+```
+
+```{r}
+mod.ridge <- glmnet(train.x,
+                    train.y,
+                    alpha = 0,
+                    family="binomial",
+                    lambda = lambda.opt)
+probs.ridge <- predict(mod.ridge,
+                       family="binomial",
+                       newx=test.x,
+                       type="response")
+```
+
+```{r}
+hist(probs.ridge)
+```
+Add predictions and compute the total cost as a function of a prob threshold
+
+```{r}
+prob.thresh <- .50
+totCost <- function(prob.thresh){
+  test.df %>% 
+    select(IsSpam) %>% 
+    mutate(pred =  probs.ridge > prob.thresh) %>% 
+    rowwise() %>% 
+    mutate(cost=addCost(IsSpam == 1,pred))%>% 
+    with(sum(cost))
+}
+```
+
+Ok, here we go..
+```{r}
+true.pos <- -10
+true.neg <- 0
+false.pos <- 40
+false.neg <- 20
+
+probs <- seq(0,1,length=50)
+allCost <- map_dbl(probs, totCost)
+```
+
+
+```{r}
+data.frame(prob=probs,cost=allCost) %>%
+  ggplot()+
+  geom_point(aes(prob,cost))+
+  labs(title="Cost vs Probability Threshold",
+       subtitle=sprintf("False Positive Cost: %s",false.pos))
+```
+Where is the minimum cost
+```{r}
+id <- which.min(allCost)
+costMin <- allCost[id]
+probOpt <- probs[id]
+c(probOpt,costMin)
+```
+
+Hence the 
+
+Extra: Let's compute the value of the optimal probabilty as a function of the false postive cost.
+
+Not the most elegant function, but it will work.
+```{r}
+probOptVal <- function(falsePos){
+  ## not: <<- changes the value of a global variable
+  false.pos <<- falsePos
+  allCost <- map_dbl(probs, totCost)
+  id <- which.min(allCost)
+  probs[id]
+}
+  
+##Check
+probOptVal(false.pos)
+probOptVal(10)
+probOptVal(100)
+
+```
+
+Apply to a sequence of false positive costs
+```{r}
+falsePosVals <- seq(10,500,by=20)
+optProbs <- map_dbl(falsePosVals,probOptVal)
+```
+
+
+And  here is the plot
+```{r}
+data.frame(cost=falsePosVals,prob=optProbs) %>% 
+    ggplot()+
+    geom_point(aes(cost,prob))+
+  labs(title="False Postive cost vs Spam Threshold")
+  
+```
+This plot shows how the threshold probability increases as the cost of a false positive increases. As the cost gets higher, we have to be more and more discriminating about Spam. At the high end, we have to be very sure that an email is spam since a mistake incures a heavy cost. 

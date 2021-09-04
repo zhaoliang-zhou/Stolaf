@@ -1,0 +1,518 @@
+---
+title: "Introduction to Principal Components Analysis"
+author: "Matt Richey"
+date: "4/26/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+Load the usual library and one more
+```{r}
+## Load the libraries
+suppressMessages(library(tidyverse))
+suppressMessages(library(ggrepel))
+```
+
+
+
+# Synthetic Example
+Let's build some simple data so we see some of the basic features of PCA.
+
+
+Set some parameters
+```{r}
+n <- 100
+b0 <- 1
+b1 <- 3
+eps <- 3
+```
+
+Use these values to build some data
+```{r}
+x <- rnorm(n,1,2)
+y <- b1*x+rnorm(n,0,eps)
+```
+
+Pack the data into a matrix X
+```{r}
+X <- matrix(c(x,y),ncol=2)
+colnames(X) <- c("x","y")
+
+```
+
+
+Make sure we have zero column means. This just makes it easier since we don't have to worry about the means appearing in the various formulae for covariance etc. 
+
+```{r}
+
+X <- scale(X,scale=F)
+##Check...
+colMeans(X)
+```
+Looks good. Put together a data  frame.
+
+```{r}
+data.df <- data.frame(x1=X[,1],
+                      x2=X[,2],
+                      label=1:n)
+```
+
+Here's what we have. Note the coord_fixed so that we have a aspect ratio of one. 
+```{r}
+data.df %>% 
+ggplot()+
+    geom_point(aes(x1,x2),color="blue")+
+    coord_fixed()+
+  labs(title="Our Data")
+
+```
+
+There is a strong correlation between x1 and x2. Let's see this in the covariance matrix.
+```{r}
+cov(X)
+```
+
+As a reminder, the covariance can be computed  directly from  X.  Since the data are centered, this is pretty simple.
+
+$$ cov(X) =\frac{1}{n-1}X^t X$$
+
+
+
+```{r}
+(XtX <- t(X)%*% X/(n-1))
+```
+
+
+## Singular  Value  Decomposition
+Let's do it.
+
+$$X=U\,DV\,^t$$
+where   
+
+ * $U$ is $n \times p$, $U^tU=I$.
+  * $D$ is diagonal $p \times p$,  with $diag(D)=\{\sigma_1, \sigma_2,\dots,\sigma_p\}$ where
+  
+  $$\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_p \ge 0$$
+  
+ * $V$ is $p \times p$,  $V^tV=I
+```{r}
+svdDecomp <- svd(X)
+```
+
+Pull off the parts...
+```{r}
+
+U <- svdDecomp$u
+D <- diag(svdDecomp$d)
+V <- svdDecomp$v
+```
+
+And check they are working as advertised. 
+
+```{r}
+t(U)%*%U
+t(V)%*%V
+```
+Looking good. How about our diagonal matrix?
+```{r}
+D
+```
+
+## Eigenvectors and  values
+For  future reference, let's compute the eigenstuff for the covariance matrix.
+
+```{r}
+
+eigenStuff <- eigen(cov(X))
+(evals <- eigenStuff$values)
+(evecs <- eigenStuff$vectors)
+```
+evals
+
+evecs <- eigenStuff$vectors
+evecs
+
+These are closely related to information we've seen in the SVD. Recall that
+$$X^tX=VD^2V^t$$
+Just checking....
+```{r}
+t(X)%*%X  ##(n-1)*cov(X)
+V %*% D^2 %*% t(V)
+```
+
+Yep the same thing.
+
+Hence, the eigenvalues of the covariance matrix must be the same as the diagonal of D^2/
+```{r}
+(D%*%D)/(n-1)
+```
+Yep, it always works this way.
+
+As  well, the eigenvectors must be  the same as the columns of $V$ (up to overall scale).
+
+evecs
+```{r}
+evec1 <- evecs[,1]
+evec1 <- evec1/sqrt(sum(evec1^2))
+evec2 <- evecs[,2]
+evec2 <- evec2/sqrt(sum(evec2^2))
+```
+
+Same for V
+```{r}
+v1 <- V[,1]
+v1 <- v1/sqrt(sum(v1^2))
+v2 <- V[,2]
+v2 <- v2/sqrt(sum(v2^2))
+
+```
+
+Compare the normalized vectors. They darned well better be the same (up to maybe a sign).
+```{r}
+cbind(evec1,v1)
+cbind(evec2,v2)
+```
+
+
+
+## Geometry of the Eigenvectors
+Let's look at the data and the eigenvectors on the same axes/
+```{r}
+eScale <- 10
+v1 <- eScale*v1
+v2 <- eScale*v2
+```
+
+Fix the plot range.
+```{r}
+r1 <- with(data.df,range(x1))
+r2 <- with(data.df,range(x2))
+(a <- min(r1[1],r2[1]))
+(b <- max(r1[2],r2[2]))
+```
+And the plot of data and the eigenvectors of cov(X).
+```{r}
+ggplot(data.df,aes(x1,x2))+
+    geom_label(aes(label=label),size=4)+
+    geom_segment(aes(x=0,xend=v1[1],
+                     y=0,yend=v1[2]),
+                 color="red",size=2,
+                 arrow = arrow(length = unit(0.03, "npc")))+
+    geom_segment(aes(x=0,xend=v2[1],
+                     y=0,yend=v2[2]),
+                 color="red",size=2,
+                 arrow = arrow(length = unit(0.03, "npc")))+
+    coord_fixed()+
+    scale_x_continuous(limits=c(a,b))+
+    scale_y_continuous(limits=c(a,b))+        
+    ggtitle("Original Data with eigen directions of Cov(X)")
+
+```
+
+This is the classic Principal Components plot. The data are significantly skewed. The eigenvectors of the cov(X) pick out the (orthogonal directions) of greatest variability. In this case, the direction of greatest variability is in the SE to NW direction. The orthogonal direction holds very little variability.
+
+## Change of basis
+Now let's change from the standard basis  into the basis defined by the eigenvectors. 
+
+
+Doing so is easy, it's just matrix multiplication. We'll let $X_v$ be the coordinates of our points in the new V-basis.
+
+
+```{r}
+X_v <- X %*% V
+```
+Pack this together into a data frame plot. 
+```{r}
+dataV.df <- data.frame(z1=X_v[,1],
+                       z2=X_v[,2],
+                       label=1:n)
+```
+
+
+
+
+Again, fix up the plot range
+
+```{r}
+r1 <- with(dataV.df,range(z1))
+r2 <- with(dataV.df,range(z2))
+a <- min(r1[1],r2[1])
+b <- max(r1[2],r2[2])
+```
+
+And plot...now the directions of the greatest variability are in the directions of the axes.
+```{r}
+ggplot(dataV.df,aes(z1,z2))+
+    geom_label(aes(label=label))+
+    geom_segment(aes(x=0,xend=10,y=0,yend=0),color="red",
+                 size=1,
+                 arrow = arrow(length = unit(0.03, "npc")))+
+    geom_segment(aes(x=0,xend=0,y=0,yend=10),color="red",
+                 size=1,
+                 arrow = arrow(length = unit(0.03, "npc")))+
+    coord_fixed()+
+    scale_x_continuous(limits=c(a,b))+
+    scale_y_continuous(limits=c(a,b))+    
+    ggtitle("Data in eigen basis.")
+```
+
+
+## Decorrelation
+One last thing, in the new eigenbasis, the data are decorrelated!
+
+```{r}
+round(cov(X_v),4)
+```
+Note that the off-diagonal entries are (essentially) zero! Not only does the the rotation orient the data better, they are now decorrelated.
+
+
+# Principal Component Analysis
+Principal Component Analysis does all this for us.  Here's how it goes.
+
+
+## prcomp
+The R function prcomp is the tool.  With PCA, it's often worthwhile to scale the data  so that everything is on the same scale in the end.
+```{r}
+mod.pca <- prcomp(X,
+                  scale=F)
+```
+
+The information about the PCA is contained in both the summary and the mod.pca objet
+```{r}
+summary(mod.pca)
+```
+ This telling us that the standard deviation of the data in the first principal component  direction versus the standard deviation in the  second direction. As well, the proportion of the variance in each direction is noted, along with the cumulative proportion up through that component (for two components, this information isn't very useful!).
+
+
+If you just look that mod.pca object, you can see other information.
+```{r}
+mod.pca
+```
+In this case, the "rotation" matrix, our V from above, is presented. 
+
+Some of this information is available directly within the mod.pca object.
+```{r}
+names(mod.pca)
+```
+
+For example, the "x" values are the rotated values (the points in our second plot above). In other words, these are the points in new basis.
+
+```{r}
+x.pca <- mod.pca$x
+```
+
+Compare...
+```{r}
+head(dataV.df)
+```
+
+to this...
+```{r}
+head(x.pca)
+```
+
+In the end, PCA is just doing what we did above. 
+
+  * Principal Components = Eigenvectors of $X^tX$ = Columns of $V$ from SVD of $X$.
+  * Variances in Principal Component Directions = Eigenvalues of  $X^tX$ = Diagonals of $D^2$ from SVD of $X$.
+
+
+
+## The biplot
+A standard way to look at the results of a PCA computation is via the so-called biplot. Features
+
+ * The plot shows the first two Principal Component Directions. The idea is that these will account for a great deal of the total  variability if the data.
+ * The  rotated points are projected into this 2-dimensional space. Hopefull, some obvious grouping will occur.
+ * The "Loadings" of the predictors in the first two Principal Components are shown. This gives an idea of how
+ the predictors related to the these key directions.
+ 
+ Overall, we are hoping to see a clustering of qualitative features. Let's take a look. A heads-up: in this synthetic example, there really isn't much to see qualitivatively. But we can see how the parts fit together. Things get much more interesting with real data.
+
+```{r}
+biplot(mod.pca)
+```
+
+Ok, not much to brag about. The scale is weird (and not something to worry about) and the graphics are primitive. Still, we see the key idea. The  numbered points are displayed in the new basis. The two read vectors are the loadings of our predictors (x and y).  The  y predictor is heavily "loaded"  in the first Prinncipal Component direction.  The x predictor is more evenly split between the two directions.
+
+
+
+# PCA Example: Decathalon Data
+
+The data comes from 2016 Olympic Decathalon.  There were 21 athletes competing in the 10 decathalon events.
+
+  * 100 meters
+  * Long Jump
+  * Shot Put
+  * High Jump
+  * 400 meters
+  * 110 meter hurdles
+  * Pole Valut
+  * Discus
+  * Javelin
+  * 1500 meters
+  
+The different events span the range of athletic ability. Some are sprints, some are strength, some combinations of different skills and physical makeup. The values in the data set are the scores assigned to each athlete's performance in each of the 10 events. The winner is the athlete with the highest total score. Ashton Eaton from the United States won the gold, with Kevin Mayer from France winning the silver, and Damian Warner from Canada getting the bronze.
+
+
+Read the data and separate out the parts.
+```{r}
+dataDir <- "~/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap10"
+dataFile <- "Decathalon2016.csv"
+decathalon.df <- read.csv(file.path(dataDir,dataFile))
+dim(decathalon.df)
+```
+
+Pull off the events, the athletes' names, and the final total scores.
+```{r}
+decathalonEvents.df <- decathalon.df[,4:13]
+athleteNames <- decathalon.df[,1]
+eventNames <- colnames(decathalonEvents.df)
+totalScores <-  decathalon.df[,3]
+```
+
+Now we can apply Principal Component Analysis to this data set. We don't need to scale since the scores should already be on the same scale. 
+```{r}
+decathalon.mat <- data.matrix(decathalonEvents.df)
+rownames(decathalon.mat) <- athleteNames
+mod.pca <- prcomp(decathalon.mat,scale=F)
+```
+
+
+```{r}
+summary(mod.pca)
+```
+From this summary, we conclude that the first Principal Component accounts for 32.07% of the total  variance, the first two Principal Components account for  53.53% of the total variance. This is confirmation that we can see a fair amount about  what is going on just from the first two Principal Components.
+
+
+Now let's look at R's biplot.
+```{r}
+biplot(mod.pca)
+```
+
+We can sorta see what is going on here. However, the plot is a but rudimentary. Let's build a better looking plot! Also, by building it ourselves, we can see where the parts of the plot come from.
+
+### Building a better  biplot
+Pull off the rotated scores. These are the points in the biplot. 
+```{r}
+scoresRotated <- mod.pca$x
+rotation.mat <- mod.pca$rotation
+```
+
+Put the PCA info into data frames
+```{r}
+scoresRotated.df <- data.frame(scoresRotated)
+scoresRotated.df$names <- athleteNames
+rotation.df <- data.frame(rotation.mat)
+rotation.df$events <- eventNames
+```
+
+Now we can build the biplot from scratch.
+
+  * The points are the individual athletes' scores rotated into the  basis  defined by the Principal Components. We only see the first two components. 
+```{r}
+sc <- 300 ## get everything on the same scale
+scoresRotated.df %>% 
+  ggplot()+
+  ## Rotated athlete scores
+  geom_point(aes(PC1,PC2))+
+  geom_text_repel(aes(PC1,PC2,label=names))+
+  ## Add the loadings,  these are just the coordinates in the PC1 and PC2 vectors
+  geom_segment(data=rotation.df,
+             aes(x=0,y=0,xend=sc*PC1,yend=sc*PC2),size=1,color="red")+
+  geom_label(data=rotation.df,
+              aes(sc*PC1,sc*PC2,label=events),color="red")+
+  labs(title="PCA for 2016 Olympic Decathalon")
+```
+
+The  (better) biplot shows how the different events and athletes group into  distinct clusters.
+
+
+  * Discus, Javelin, and Shot Put are all throwing events. (Strength)
+  * 1500, 100, 400, and 110 hurdles are all races. (Speed)
+  * Pole Vault, Long Jumpm, and High Jump  are hybrid events combining strength and speed.
+  
+The PC1 axis seems to be capturing speed, while the PC2 axis is trying to capture more the strength factors.   
+
+As well, we can see how the athletes are distributed. 
+
+ * Damian Warner Luiz Alberto de Araujo are speed performers.
+ * Leonel Suarez and Zach Ziemek are strength performers
+ * Aston Eaton, the winner and Olympic record holder, is way out by himself. He illustrates a dramatic
+ blending of both strength and speed.
+ 
+ 
+
+### PCA and Dimension Reduction
+
+
+
+Add the final totals to the rotated data frame.
+```{r}
+scoresRotated.df$total <- totalScores
+scoresRotated.df$name <- athleteNames
+```
+
+
+How well do  the first two Principal Components predict the final totals?
+```{r}
+mod.lm2 <- lm(total ~ PC1+PC2,data=scoresRotated.df)
+summary(mod.lm2)
+scoresRotated.df$totalPred <- predict(mod.lm2)
+scoresRotated.df %>% 
+  ggplot()+
+  geom_point(aes(total,totalPred))+
+  geom_text_repel(aes(total,totalPred,label=name))
+```
+
+Not so bad. We can see from the plot, that the general ordering is the same. However, from  PC1 and PC2, we would expect Mayer (Silver) to edge out Eaton (Gold). The biggest outlier is perhaps Van der Plaetsen.
+
+What about using the first three Principaal Components?
+
+
+
+```{r}
+mod.lm3 <- lm(total ~ PC1 + PC2 +PC3,data=scoresRotated.df)
+scoresRotated.df$totalPred <- predict(mod.lm3)
+scoresRotated.df %>% 
+  ggplot()+
+  geom_point(aes(total,totalPred))+
+  geom_text_repel(aes(total,totalPred,label=name))
+```
+
+Much bettor all intents and purposes we have completely captured the final rankings of the 10 event decathalon with the first 3 Principal Components.
+
+
+```{r}
+scoresRotated.df %>% 
+  arrange(desc(total)) %>% 
+  select(name,total,totalPred)
+```
+
+# Assignment: College Scoreboard
+The College Scoreboard Porject (https://collegescorecard.ed.gov/) is a repository of data about US colleges and universities. 
+
+The data set  "Colleges2015.csv" contains data for 135 undergraduate institutions (St. Olaf included) with the following fields.
+
+
+  * ADM_RATE: admit rate
+  * SAT_AVG: Average SAT (ACT converted)
+  * DEG_MS: Degrees in Math/Stat
+  * PERC_WHITE: Percent White
+  * PERC_PT: Percent Part-time
+  * NET_PRICE: Net Price
+  * NET_PRICE_30k: Net Price 0-30k Income bracket
+  * FAC_SAL: Average Fac Salary
+  * PCT_PELL: Percent Pell Eligible
+  * SIX_YR_CP: 6 year completion rate
+  * LOAN_DEF: 3 year load default rate
+  * PELL_DEBT_MED: Median debt Pell Eligible
+  * NOPELL_DEBT_MED: Median debt Not Pell Eligible
+  * FAM_INC: Family Income
+  
+Perform a Principal Component Analysis (use our custom biplot, not the crude built-in R version!) of this data  set. Comment on what you observe. In particular, what qualitative features  do the Principal Component axes  identify? There is no absolute right answer here, use your subjective judgment. 

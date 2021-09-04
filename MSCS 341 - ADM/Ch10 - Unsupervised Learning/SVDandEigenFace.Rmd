@@ -1,0 +1,483 @@
+---
+title: "SVD and EigenFaces"
+author: "Matt Richey"
+date: "04/25/2019"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+
+# Setup and Load Libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = FALSE)
+```
+Load libraries
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(factoextra))
+suppressMessages(library(ggrepel))
+
+
+
+```
+
+# Introduction
+Let's implement the process of creating  Eigenspaces associated with classes of images. We will then use these Eigenspaces as a means of performing some basic image classification.
+
+
+
+# Data
+Our  data  consists of images of (very cute) cats and dogs. 
+```{r}
+dataDir <- "/Users/richeym/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap10"
+catsAll <- read.csv(file.path(dataDir,"cats.csv"),header=F)
+dogsAll <- read.csv(file.path(dataDir,"dogs.csv"),header=F)
+
+```
+
+
+Each dataset of cats and dogs contain 99 images of, no surprise, cats and dogs. Each image is 64x64
+image stacked into a row  4096=64*64 greyscale values. Note that there is  one row for each of the 4096 pixels and one  column  for each image.
+```{r}
+dim(catsAll)
+dim(dogsAll)
+
+```
+
+
+Subset this into  training and testing sets. We will build our eigenspaces on the training data and then see if we can use these to identify a testing image as either a cat or a dog. 
+```{r}
+cats <- catsAll[,1:90]
+catsOther <- catsAll[,91:99]
+dogs <- dogsAll[,1:90]
+dogsOther <- dogsAll[,91:99]
+
+```
+
+
+Extract the dimensions
+```{r}
+(n <- nrow(cats))
+(p <- ncol(cats))
+```
+
+
+Note that n= number of observations, an observation  is a pixel
+value.  Also, p = number of features, in this case, its a the pixal
+value across all the cats!
+
+
+
+
+## Helper functions
+
+In order to work with these images, we need  to be able to view them. To do so, let's create a couple helper functions  that will facilitate going back and forth between flat and square images. 
+
+
+The first function converts an image into 64x64 matrix.
+```{r}
+imageConv <- function(flatImage,size=64){
+    matrix(flatImage,nrow=size,byrow=T)    
+}
+
+```
+
+
+The second function  reverses the process. 
+```{r}
+flatConv <- function(rectImage,size=64){
+    matrix(t(rectImage),nrow=size^2,ncol=1)[,1]
+}
+
+```
+
+This makes it easy to plot our images with a minimum of fuss and muss.
+```{r}
+flatImage <- function(dat) {
+  img <- imageConv(dat)
+  image(img,col=grey.colors(256)) 
+}
+```
+
+
+## Here's looking at some images
+Here's how to plot an image. It's pretty easy.
+
+Grab a cat and plot it. 
+```{r}
+flatCat <- cats[,1]
+flatImage(flatCat)
+```
+
+
+Look at 9 randomly selected cats.
+```{r}
+samp <- sample(1:p,9,rep=F)
+catSamp <- cats[,samp]
+op <- par(mfrow=c(3,3),mai=c(0.02,0.,0,0))
+for(i in 1:9){
+   flatImage(catSamp[,i])
+}
+par(op)
+
+
+```
+Those are some cute cats.
+
+Do the same for dogs. They couldn't possibly be as cute.
+Look at 9 randomly selected cats
+```{r}
+samp <- sample(1:p,9,rep=F)
+dogSamp <- dogs[,samp]
+op <- par(mfrow=c(3,3),mai=c(0.02,0.,0,0))
+for(i in 1:9){
+    flatImage(dogSamp[,i])
+}
+par(op)
+```
+Maybe I was  wrong. Pretty cute too.
+
+# Singular Value Decomposition
+
+Now we can begin the computation in the image space. Remember the plan.
+
+ * Perform the SVD decomposion of the full data set.
+ * Identify the eigenvectors that span the column space (subset of image space).  
+ * Use the eigenvectors to define the projection mapping from the full image space onto the column space.
+ * The closer an image is to a particular eigenspace, the more it is like the common images.
+
+To make the SVD work, we need to center the data.
+```{r}
+cats0 <- scale(cats,scale=F)
+```
+
+
+Check.. the new cats should have column means which are zero.
+```{r}
+colMeans(cats0)
+```
+Check...
+
+And they should plot ok...
+```{r}
+flatImage(cats0[,1])
+```
+
+Check...
+
+Now the Singular Value Decomposition of the cat images
+```{r}
+cat.svd <- svd(cats0)
+```
+
+Here are the u, d, and v matrices
+```{r}
+U <- cat.svd$u
+D <- cat.svd$d
+V <- cat.svd$v
+```
+
+
+Check the dimensions
+```{r}
+dim(U)
+length(D)
+dim(V)
+```
+Looking good.
+
+As well, you could check that U and V are orthonormal.
+
+
+The diagonal values of D  measurethe variabililty contained in each component
+Pack into data frame. Include both the variability in each component and the cumulative  variability.
+```{r}
+proj.df <- data.frame(rank=1:p,var=D,totvar=cumsum(D)/sum(D)) 
+```
+
+
+What do we have
+```{r}
+proj.df %>%
+    gather(type,val,var:totvar) %>% 
+    ggplot()+
+    geom_point(aes(rank,val))+
+        geom_line(aes(rank,val),color="blue")+
+    facet_wrap(~type,scales="free")+
+    labs(title="Variablity by rank")
+```
+
+This is a fairly typical situation. The first 10-20 components account for about half of the total variability.
+
+
+
+# Eigenface reconstructions
+The columns of the U matrix are the eigenfaces. The first eigenface is the one with the largest eigenvalue. In some ways, it is capturing the most "cat-ness" of all the eigenfaces
+```{r}
+eigenFace1=U[,1]
+```
+What does it look like?
+```{r}
+flatImage(eigenFace1)
+
+```
+
+Very cat-line. You can think of this as a first order approximation of the average of all the cats in the data set.
+
+Now let's look at first 9 eigenfaces.
+```{r}
+samp <- 1:9
+catSamp <- U[,samp]
+op <- par(mfrow=c(3,3),mai=c(0.02,0.,0,0))
+for(i in 1:9){
+   flatImage(catSamp[,i])
+}
+par(op)
+
+
+```
+
+
+How about the last 9 eigenfaces?
+```{r}
+samp <- 81:90
+catSamp <- U[,samp]
+op <- par(mfrow=c(3,3),mai=c(0.02,0.,0,0))
+for(i in 1:9){
+     flatImage(catSamp[,i])
+}
+par(op)
+```
+At this point, we still have cats, but we've lost a great deal of the distinguishing features of "cat-ness"
+
+
+## Projections onto cat space: Eigenface reconstuctions
+Grab a cat from the test space. 
+```{r}
+aCat <- catsOther[,1]
+flatImage(aCat)
+```
+
+
+What does it look like after projecting onto the cat space? To get it there we compute it's projection using the "hat matrix" $U\,U^t$.
+```{r}
+catHat <- U %*% t(U)
+aCatHat <- catHat %*%aCat
+```
+
+What do we have
+```{r}
+flatImage(aCatHat)
+```
+
+Compare together
+```{r}
+op <- par(mfrow=c(2,1),mai=c(0.02,0.,0,0))
+flatImage(aCat)
+flatImage(aCatHat)
+par(op)
+```
+The comparison reveals both similarities and differences. Clearly, a fair amount of the unique large-scale features of aCat are preserved after projecting. At the same time, a lot of finer features are missing. This is because we trying to use a relatively small number of cats to capture the essence of "cat-ness"!
+
+##Facial Recognition Challange
+
+Here's a game you can play. Take some cats from the test set, project them onto the eigenspace, and see  if we can pick out the correct pairings 
+
+The number of images
+```{r}
+num <- 5
+```
+
+
+Pick num cats at random and build eigenFace reconstruction
+```{r}
+samp <- sample(1:9,num,rep=F)
+catHats <- matrix(nrow=4096,ncol=num)
+for(i in 1:num){
+    catHats[,i] <- catHat %*% catsOther[,i]
+}
+```
+
+
+Set up the matches.....
+```{r}
+## Scramble the order
+newOrd <- sample(1:num,num,rep=F)
+op <- par(mfrow=c(2,num),mai=c(0.02,0.,0,0))
+for(i in 1:num){
+   flatImage(catsOther[,i])
+}
+## Scrambled Hatted Images
+for(i in 1:num){
+    flatImage(catHats[,newOrd[i]])
+}
+par(op)
+```
+Challenge: Match the original cats on the top row with their projections on the bottom row!
+
+The answer....
+```{r}
+op <- par(mfrow=c(2,num),mai=c(0.02,0.,0,0))
+for(i in 1:num){
+    image(imageConv(catsOther[,i]),col=grey.colors(256))
+}
+for(i in 1:num){
+    image(imageConv(catHats[,i]),col=grey.colors(256))
+}
+par(op)
+
+```
+
+
+Here's the actual order.   This says that  the images are in the order
+newOrd[1],newOrd[2],newOrd[3],newOrd[4],newOrd[5]
+```{r}
+newOrd
+```
+
+
+## Dog  Space
+Pull off a dog!
+```{r}
+aDog <- dogsAll[,5]
+flatImage(aDog)
+```
+
+
+Let's project the dog onto the cat eigenspace.
+```{r}
+aDogHat <- catHat %*% aDog
+flatImage(aDogHat)
+```
+
+
+Compare together
+```{r}
+op <- par(mfrow=c(2,1),mai=c(0.02,0.,0,0))
+flatImage(aDog)
+flatImage(aDogHat)
+par(op)
+```
+
+What  do you  think?
+
+# Dueling  Eigenspaces
+
+Now  let's create eigenspaces for both  Cats and  Dogs.
+
+Define all the cat stuff
+```{r}
+cats0 <- scale(cats,scale=F)
+cat.svd <- svd(cats0)
+catU <- cat.svd$u
+catHat <- catU %*% t(catU)  
+```
+Same for dogs...
+```{r}
+dogs0 <-  scale(dogs,scale=F)
+dog.svd <- svd(dogs0)
+dogU <- dog.svd$u
+dogHat <- dogU %*% t(dogU)
+```
+
+If we have an any image, we can project it into both the cat and the dog eigenspaces. 
+
+```{r}
+anImage <- catsOther[,6]
+```
+
+```{r}
+catProj <- catHat %*% anImage
+dogProj <- dogHat %*% anImage
+```
+Which space is the original image closest to?
+
+```{r}
+catDist <- mean((anImage-catProj)^2)
+dogDist <- mean((anImage-dogProj)^2)
+```
+
+
+Compare the distances.
+```{r}
+c(catDist,dogDist)
+```
+
+Try something from the dog images.
+```{r}
+anImage <- dogsOther[,6]
+catProj <- catHat %*% anImage
+dogProj <- dogHat %*% anImage
+catDist <- mean((anImage-catProj)^2)
+dogDist <- mean((anImage-dogProj)^2)
+c(catDist,dogDist)
+```
+Closer to the dog space (as well it should be).
+
+
+## More faces....
+Let's take a crack at the the other faces  set.
+```{r}
+facesAll <- read.csv(file.path(dataDir,"face.csv"),header=F)
+dim(facesAll)
+```
+Only two faces.
+
+Try to classify the first of these.
+```{r}
+aFace1 <- facesAll[,1]
+aFaceCat1 <- catHat %*% aFace1
+aFaceDog1 <- dogHat %*% aFace1
+catDist1 <- mean((aFace1-aFaceCat1)^2)
+dogDist1 <- mean((aFace1-aFaceDog1)^2)
+```
+
+Compare the distances.
+```{r}
+c(catDist1,dogDist1)
+```
+Much more dog-like!
+
+Now try the other one.
+```{r}
+aFace2 <- facesAll[,2]
+aFaceCat2 <- catHat %*% aFace2
+aFaceDog2 <- dogHat %*% aFace2
+catDist2 <- mean((aFace2-aFaceCat2)^2)
+dogDist2 <- mean((aFace2-aFaceDog2)^2)
+c(catDist2,dogDist2)
+```
+This one is more cat-like
+
+
+What do these faces look like? Is there some reason to understand the difference.
+
+The first  face.
+```{r}
+flatImage(aFace1)
+```
+
+Interesting...
+
+```{r}
+flatImage(aFace2)
+```
+
+It's all so clear now.
+
+
+
+
+#Assigment: Prediction with Eigenfaces
+Does prediction into the dog or cat eigenspace reliability
+predict if an images is a dog or a cat? That is, for faces not in
+the training sets, does the quality of the reconstruction indicate
+"catness" versus "dogness"? Classify all the test cases and track your error rate. 
+
+
+Next, how does this method compare to using penalized regression? To do so, you now need to think of a model in which each observation is a face and the predictors are the pixel values. You need to mildly modify the data so that you have one large data set with rows associated with all the cat and dog images and a response variable indicating which type of image it is (cat or  dog). 
+
+Note: In the big data sets, there are 99 cat images and 99 dog images. Each has 4096 pixels. Combine these, along with binary response  variable to create a  data set of  198 observations and 4096 predictors and 1 response. 

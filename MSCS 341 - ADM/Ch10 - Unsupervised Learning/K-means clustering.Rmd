@@ -1,0 +1,461 @@
+---
+title: "K-means Clustering"
+author: "Matt Richey"
+date: "04/23/2020"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = FALSE)
+```
+# Introduction to Kmeans Clustering (and PCA)
+
+The usual libraries. You will probabilty need to install the factoextra package.
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(MASS))
+```
+
+
+You might have to install factoextra: install.packages("factoextra")
+```{r}
+suppressMessages(library(factoextra))
+```
+
+The basic idea behind kmeans clustering is that we want to find $k$ clusters surround the centroids of subsets (clusters) of the data. A good clustering is one which can't be locally improved by a
+sequence of centroid forming and grouping around the centroids. We
+will illustrate this below.
+
+
+# Synthetic  data for K=3 clusters
+
+Of course, in practice you don't know how many clusters there are. In this case, we will
+Build the data with the following parameters
+```{r}
+## number of poin ts
+N <- 40
+## maximum number of clusters
+maxK<- 6
+## standard deviation
+sd0 <- 3
+```
+
+
+Use the multivariate normal distribution to put points into the k
+classes. Note that if the standard deviation is large, these
+clusters will overlap. 
+
+First, thec enters for the clusters
+```{r}
+mu <- matrix(runif(2*maxK,-3,3),nrow=2,ncol=maxK)
+dat <- matrix(nrow=maxK*N,ncol=2)
+for(i in 1:maxK){
+    dat[(N*(i-1)+1):(N*i),] <- mvrnorm(N,mu[,i],diag(c(1,1)*sd0))
+}
+
+```
+
+
+
+Pack everything into a data structure.
+```{r}
+(clusterLabels <- factor(LETTERS))
+
+```
+
+For demonstration purposes, use 3 means.
+```{r}
+K <- 3
+(theseClusters <- clusterLabels[1:K])
+data.df <-
+    data.frame(x=dat[,1],
+               y=dat[,2],
+               cluster.orig = rep(clusterLabels[1:maxK],each=N)) %>% 
+    filter(cluster.orig %in% theseClusters) %>%
+    droplevels()
+```
+
+
+
+What are we working with. Remember,  in practice, you don't see this information!
+```{r}
+gg.orig <- data.df %>% 
+    ggplot()+
+    geom_point(aes(x,y,color=cluster.orig),size=2)+
+    guides(color=F)+
+    labs(title="Original Clusters")
+gg.orig
+
+```
+
+
+# Implementing the kmeans algorithm by hand
+
+The k-means algorithm has two steps.
+
+ * Given a clustering, find the centroids of the clusters.
+ * For each centroid, identify the observations closest to this centroid. These form a cluster.
+ 
+Repeat as needed.
+
+
+Let's do it. Suppose we want to find three clusters (the right number!) for our data.
+
+To start, we just assign each point randomly to  one of three clusters. 
+```{r}
+data.df$cluster <- sample(theseClusters,nrow(data.df),rep=T)
+```
+
+
+Next, compute the centroid (center of mass) of each (randomly define) cluster
+```{r}
+data.df <- data.df %>%
+    group_by(cluster) %>% 
+  ## centroid coordinates
+    mutate(centX = mean(x),
+           centY = mean(y))
+```
+
+Pull off the centroids, we'll need these soon.
+```{r}
+centroids <- with(data.df,cbind(unique(centX),unique(centY)))
+```
+
+How does this  look?
+```{r}
+data.df %>%
+  ggplot()+
+  geom_point(aes(x,y,color=cluster)) +
+  geom_point(aes(centX,centY,color=cluster),size=5)
+```
+
+## The Interation
+Start the iteration of the K-means clustering with K means
+Step 1: compute the nearest centroid. Here's simply wha
+```{r}
+## Find closest centroid.
+pt <- c(0,0)
+which.min(apply(centroids,1,function(row)(sum((row-pt)^2))))
+```
+Seems to work, make it function of the  point and the centroids
+```{r}
+nearestCentroid <- function(pt,centroids){
+  which.min(apply(centroids,1,function(row)(sum((row-pt)^2))))  
+}
+
+```
+
+Give this function a spin...
+```{r}
+nearestCentroid(c(-6,-6),centroids)
+nearestCentroid(c(6,6),centroids)
+nearestCentroid(c(6,-6),centroids)
+
+```
+Do the results compare with the eye-balling of the plot
+
+Determine the nearest centroid for each point in the data frame
+```{r warning=FALSE}
+data.df <- data.df %>% 
+    rowwise() %>%
+    ##this determines the nearest
+    mutate(cluster=factor(nearestCentroid(c(x,y),centroids)))
+```
+
+
+```{r}
+data.df %>% 
+  ggplot()+
+  geom_point(aes(x,y,color=cluster),
+             size=2)+
+  labs(title="K-means Clustering")
+```
+Not bad, for a first pass through.
+Repeat this process. At each step, cluster around nearest
+centroid. Then compute the centroids of the new
+clusters.
+
+## A K-means function
+```{r}
+doCluster <- function(step){
+  data.df <<- data.df %>% 
+    ungroup() %>% 
+    group_by(cluster) %>% 
+    mutate(centX=mean(x),
+           centY=mean(y))
+   centroids <- with(data.df,cbind(unique(centX),unique(centY)))
+   data.df <<- data.df %>% 
+    rowwise() %>%
+    ##this determines the nearest
+    mutate(cluster=nearestCentroid(c(x,y),centroids))
+   gg <- data.df %>% 
+     ggplot()+
+     geom_point(aes(x,y,color=factor(cluster)),
+                size=2)+
+     guides(color=F)+
+     labs(title=sprintf("K-means Clustering: Step = %s",step))
+   gg
+}
+
+doCluster(0)
+```
+
+
+## Start Over: assign random clusters
+```{r}
+
+data.df$cluster <- sample(theseClusters,nrow(data.df),rep=T)
+```
+
+Build a sequence of plots showing the progression of the k-means algorithm.
+```{r}
+ggs <- list()
+for(m in 1:6)
+    ggs[[m]] <- doCluster(m)
+
+library(gridExtra)
+grid.arrange(grobs=ggs,nrow=2)
+
+```
+The sequence of plots shows how the k-means starts converging to a stable 3-cluster clustering 
+
+How does this compare to the original clusters (unknown in practice)
+```{r}
+with(data.df,table(cluster,cluster.orig))
+```
+Not so  bad (ignore the label ordering, it's arbitrary)
+
+
+When to stop? 
+
+# Using R kmeans
+
+We can now use R's k-means function.
+
+
+Of course, we need to set the data up correctly.
+
+```{r}
+data.mat <- data.matrix(data.df[c("x","y")])
+```
+The actual function call is  pretty simple
+```{r}
+numClusters <- 3
+mod.km <- kmeans(data.mat,centers=numClusters)
+```
+Note: we can add an extra parameter "nstart"  to indicate how many times to run the clustering. This can be helpful to account for variances  in the outcome due to the  random start.  If  nstart>1, the algorithm will  try to find the most common  clustering outcome.
+
+Here's what you get..
+```{r}
+names(mod.km)
+```
+
+For example, you can access the clusters and  centers of mass. 
+```{r}
+mod.km$centers
+mod.km$cluster
+```
+
+These variables are useful for diagnosing the results.
+
+   * totss: the total sum of square. For each cluster, compute the squared difference between the observations in that cluster and the centroid.
+   * withinss: Vector of within-cluster sum of squares, one component per cluster
+    * **tot.withinss**: Total within-cluster sum of squares, i.e. sum(withinss).
+    * betweenss: The between-cluster sum of squares, i.e. totss-tot.withinss.
+    * size:The number of points in each cluster.
+   
+
+In  practice, it is often an open question as to how many clusters to use. In many cases, we are seeking the optimal number of clusters. In other situations, we want a specific number of clusters.   This is where these diagnostic values come into play. Of par
+
+
+Total within sum of squares  is one gauge of how well the clustering fits the
+data. The trouble is that TWSS decreases as the k (= number of
+clusters) increases.
+
+Look at how TWSS changes as the number of clusters
+increases. This is called the "elbow" methods
+
+
+## Optimal Cluster Number Selecitn
+Let's build a synthetic data set in which we know the number of  clusters. 
+
+Build 6 clusters
+```{r}
+maxK <- 6
+mu <- matrix(c(-5,5,0,5,5,5,-3,-6,0,-3,3,-3),byrow=T,nrow=maxK)
+sd0 <-  1
+dat <- matrix(nrow=maxK*N,ncol=2)
+for(i in 1:maxK){
+    dat[(N*(i-1)+1):(N*i),] <- mvrnorm(N,mu[i,],diag(c(1,1)*sd0))
+}
+```
+
+
+Play around with this.
+```{r}
+
+(theseClusters <- clusterLabels[1:maxK])
+data.df <-
+    data.frame(x=dat[,1],
+               y=dat[,2],
+               cluster.orig = rep(clusterLabels[1:maxK],each=N)) %>% 
+    filter(cluster.orig %in% theseClusters) %>%
+    droplevels()
+
+gg.orig <- data.df %>% 
+    ggplot()+
+    geom_point(aes(x,y,color=cluster.orig),size=2)+
+    guides(color=F)+
+    ggtitle("Original Clusters")
+gg.orig
+
+
+```
+
+
+Now let's do some k-means clustering in search of the optimal number of clusters (which we  know to be  6). The plan is simple, for each value k=1,2,...M (large enough), build a -kmeans  clustering. For each, extract the Total Within Sum of Squares (tot.withinss).
+```{r}
+## Search up to M
+M <- 15
+twissVals <- numeric(M)
+for(k in 1:M){
+    mod.kmeans <- kmeans(data.df[c("x","y")],centers=k,nstart=25)
+    twissVals[k] <- mod.kmeans$tot.withinss
+}
+```
+
+
+What do we have
+```{r}
+data.frame(k=1:M,
+           twiss=twissVals) %>%
+    ggplot()+
+    geom_point(aes(k,twiss))+
+    geom_line(aes(k,twiss))+
+  scale_y_log10()+
+    scale_x_continuous(breaks=1:M)
+```
+We see a sharp "elbow" around k=6, indicating that this is a good choice for the clustering.
+
+In general, this elbow plot can help identify the optimal k. In practice, the elbow can be hard to precisely identify. Close enough is good enough. Of course, in practice, you would use some sort of train/test to see if the elbow persists. 
+
+
+## Using the factoextra package
+The factoextra package has some tools to make this easier to see/
+For example, it will create the TWSS plot
+```{r}
+library(factoextra)
+data.df <- data.df[c("x","y")]
+fviz_nbclust(data.df,kmeans,method="wss")
+```
+
+
+Visualizing the clustering
+```{r}
+K <- 5
+mod.km <- kmeans(data.df,K,nstart=25)
+data.df$cluster <- factor(mod.km$cluster)
+```
+
+
+The plot of the points and their clusters
+```{r}
+ggplot(data.df,aes(x,y,color=cluster))+
+    geom_point(size=2)+
+    guides(color=F)+
+    ggtitle("kmeans cluster")
+```
+
+
+Here is how factoextra does it.
+```{r}
+fviz_cluster(mod.km,data=data.df[,1:2])
+```
+
+
+This visualization uses **Principal Components Analysis** to project
+onto a new set of basis vectors. For only two dimensions, there
+isn't much gained.
+
+
+## Data with more than 2 dimensions.
+Create a data frame with 4 dimensions and 
+```{r}
+N <- 100
+K <- 4
+mu <- sample(-5:5,5*K,rep=T)
+sd0 <- 2
+dat <- c()
+for(k in 1:K){
+    dat <- c(dat,c(mvrnorm(N,c(mu[2*k-1],mu[2*k]),diag(c(1,1)*sd0)),
+                   mvrnorm(N,c(mu[2*k+1],mu[2*k+2]),diag(c(1,1)*sd0))))
+}
+dat <- matrix(dat,byrow=F,ncol=K)
+data.df <-
+    data.frame(x1=dat[,1],
+               x2=dat[,2],
+               x3=dat[,3],
+               x4=dat[,4])
+
+```
+
+Since we are in four dimensions, there is no simple visualization available. You could try some pairwise plots.
+```{r}
+ggplot(data.df,aes(x1,x2))+geom_point()
+ggplot(data.df,aes(x1,x3))+geom_point()
+ggplot(data.df,aes(x1,x4))+geom_point()
+```
+
+
+Not too helpful. 
+
+However, we can still cluster. Just to be safe, scale the data and repack into data frame.
+```{r}
+data.df <- scale(data.df)
+data.df <- data.frame(data.df)
+```
+
+
+Apply kmeans with, say, K=5 means.
+```{r}
+K<-5
+mod.km <- kmeans(data.df,K,nstart=25)
+data.df$cluster <- factor(mod.km$cluster)
+```
+
+
+Ok..what do we do now, we have a clustering, but how does it look? 
+
+Here's the plan: Perform a Principal Component Analysis and project into 2-dimensional space. Carry the clusters along with the projection and see what  we have.
+
+The fivz_cluster function will do this. 
+
+I.e, fviz_cluster will project onto the "best" two dimensions. This is essentially the biplot with clustering information included. 
+```{r}
+## make sure we only use the original data!
+fviz_cluster(mod.km,data=data.df[,1:4])
+```
+The boundaries are the "convex hulls" around each cluster. These are added to help visualize the clustering. 
+
+
+Note: We can build this  ourselves (except the convex hulls).
+
+# Assignnment: Build this plot!
+Use the prcomp function and ideas we developed in the Introduction to PCA to build this plot directly (no convex hulls).
+
+
+
+# Assignment: Continue with the College Scoreboard data. 
+Add a k-means clustering (you decide how many clusters). Use the resulting plot to add commentary on the types of schools and how they group together.
+
+
+# Assignment: Election Data or Housing Data
+Pick either of these  data sets and do the same sort of analysis. That is, combine k-means and PCA and discuss what you see. You need to decide how many clusters 
+
+
+# (Highly) Optional Assignment
+What if you use three Principal Components and project into three  dimensional space. Earlier, we use 3-d plots in R. Apply the same methodology to this scenario. Does projecting onto 3 PCs reveal anything?

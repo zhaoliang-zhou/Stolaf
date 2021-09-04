@@ -1,0 +1,58 @@
+## Simple data set
+n <- 5
+d.df <- data.frame(y=c(rep(0,n),rep(1,n)),
+                       x=c(runif(n,0,1),
+                           runif(n,.5,1.5)))
+##  Build a logistic regresson  model
+mod1 <- glm(y~x,data=d.df,family="binomial")
+b0.hat <- coef(mod1)[1]
+b1.hat <- coef(mod1)[2]
+
+summary(mod1)
+
+
+### Given  b0, b1  calculate likelihood
+mle <- function(b0,b1){
+ tot <- 0
+ for(k in 1:(2*n)){
+   x <- d.df[k,2]
+   y <- d.df[k,1]
+   z <- b0+b1*x
+   p <- 1/(1+exp(-z))
+   if(y==1)
+     tot <- tot + log(p)
+   else
+     tot <- tot + log(1-p)
+ }
+ exp(tot)
+}
+
+b0.hat
+b1.hat
+
+mle(-5.2,6.5)
+mle(b0.hat,b1.hat)
+
+
+gridSize <- 100
+xvals <- b0.hat+seq(-2,2,length=gridSize)
+yvals <- b1.hat+seq(-2,2,length=gridSize)
+grid.xy <- expand.grid(xvals,yvals)
+grid.df <- data.frame(b0=grid.xy[,1],
+                      b1=grid.xy[,2])
+
+grid.df <- grid.df %>% 
+  rowwise() %>% 
+  mutate(P=mle(b0,b1))
+
+
+grid.df %>% 
+  ggplot()+
+  geom_tile(aes(b0,b1,fill=P))+
+  scale_fill_gradient2(low="blue",high="red",midpoint=with(grid.df,median(P)))+
+  geom_point(aes(x=b0.hat,b1.hat),size=2,color="black")+
+  geom_contour(aes(b0,b1,z=P),color="black")+
+  labs(title="MLE For Logistic Regression",
+       subtitle="glm estimate indicated")
+
+       

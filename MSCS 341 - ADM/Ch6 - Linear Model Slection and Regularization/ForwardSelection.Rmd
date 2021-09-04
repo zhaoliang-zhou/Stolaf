@@ -1,0 +1,656 @@
+---
+title: "Forward Selection"
+author: "Matt Richey"
+date: "3/29/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressWarnings(library(tidyverse))
+```
+
+# Introduction
+The  selection algorithms are described in section 6.1 of ISLR. 
+
+Here, we will implement the Forward Selection Algorithm (*Algorithm 6.2*) using cross-validated MSE as the final determiner of the optimal  model. The plan, as outlined  in *Algorithm 6.2*, is relatively simple. 
+
+
+# The Data: Election Turnout Prediction
+
+The data files are related to the presidential election of 2012 (Romney vs Obama):  
+
+* countyElection.csv: For each US county, demographic data along with voter turnout rates   
+* county_facts_dictionary.csv: A data dictionary containing  descriptions of each of the demographic  fields in  countyElection.csv.
+
+
+Establish data locations and read the data.
+```{r}
+dataDir <- "/Users/richeym/Dropbox/COURSES/ADM/DATA/ElectionProjection"
+dataFile <- "CountyElection.csv"
+dictFile <- "County_Facts_Dictionary.csv"
+
+countyElection.df <- read.csv(file.path(dataDir,dataFile))
+names(countyElection.df)
+dictionary.df <-
+    read.csv(file.path(dataDir,dictFile))
+dim(countyElection.df)
+```
+What sort of predictors do  we have?
+
+Take a peek at the top  of the dicgtio
+```{r}
+head(dictionary.df,10)
+```
+and the bottom.
+```{r}
+tail(dictionary.df,10)
+```
+
+For modeling purposes, we don't need the identify fields fips (location identifier) and County. Let's take those out.
+```{r}
+
+countyIDInfo.df <- countyElection.df %>% 
+  select(fips,State)
+
+countyElection.df <- countyElection.df %>% 
+  select(-fips,-State)
+
+dictionary.df <- dictionary.df %>% 
+  filter(! column_name %in% c("fips","State"))
+```
+
+
+What do we have,  dimension-wise
+```{r}
+dim(countyElection.df)
+```
+
+### Visualizing the Response
+Take a look at the response variable.
+```{r}
+countyElection.df %>% 
+  ggplot()+
+  geom_histogram(aes(VoterProp),bins=100,fill="blue",color="black")
+```
+Pretty nice. More or  less normally distibuted around 0.5 or so. 
+
+### Visualizing the Predictors
+
+What about the predictors. There are a lot of them and they describe an interesting collection of demographic features. Take a peek at the dictionary.df in the Environment  tab.  Here's the first ten....
+
+```{r}
+head(dictionary.df,10)
+```
+And the  last  ten.
+```{r}
+tail(dictionary.df,10)
+```
+
+It is  tricky to  visualize this many features at once. One approach is to group the features  according to **corralations.**
+#### Building a   Correlation Heatmap
+The R function **cor** computes the correlation (a number between -1 and 1) between all the features. A  correlation value close to 1  means they are highly and positively  correlated. A value close to -1 means they are highly and negatively correlated. A  value near 0 indicates the features are uncorrelated (more or less independent of each other).
+```{r}
+numPreds <- ncol(countyElection.df)-1
+feature.mat <- data.matrix(countyElection.df[,1:numPreds])
+feature.cor <- cor(feature.mat)
+```
+features.cor is a 46 x 46  matrix. The diagonal consists of all 1's since any  feature is perfectly correlated with itself!
+
+A nice way to picture what is going on here is to  use a clustering  according to correlation.  We will be looking at this in detail  later, but for now here's a (very) brief introduction.
+
+First treat correlation as a distance. Features that are highly correlated are considered close together in distance. Since perfect correlation has the value, we can covert correlation to distance by subracting the correlation (interpreted as a distance) from 1.
+
+Then we will use Hierarchical Clustering to build a tree indicating closeness.
+```{r}
+feature.dist <- 1-as.dist(abs(feature.cor))
+feature.cluster <- hclust(feature.dist,method="complete")
+plot(feature.cluster)
+```
+The tree (aka dendogram) shows how close together various features are. For example, the lowest two features  appear to be HSG010214 (Housing units, 2014) and HSD410213 (Households, 2009-2013). If you check the correlation between them, it's close to one.
+
+On the other hand  HSG010214 (Housing units, 2014) and AFN120207 (Accommodation and food services sales, 2007 ($1,000)) are quite far away form each other. Their correlational coefficient is close to zero.
+
+```{r}
+with(countyElection.df,cor(AGE135214,BZA115213))
+with(countyElection.df,cor(HSG010214,HSD410213))
+with(countyElection.df,cor(HSG010214,AFN120207))
+```
+Now the good part. R can build a heatmap which shows these correlations after being grouped according to the dendogram tree. 
+
+
+Here's one way to do it. R this automatically if you ask it nicely, but it's more fun to do  it  yourself.
+
+First, we reorder the features according to the dendogram ordering.
+```{r}
+##The feature  names
+feature.names <- names(countyElection.df[,1:numPreds])
+## cluster  ordering
+cluster.ord <- feature.cluster$order
+## reorder according to  cluster  ordering
+feature.cor <- feature.cor[cluster.ord,cluster.ord]
+(feature.names.ord <- feature.names[cluster.ord])
+```
+
+
+Now  we  can put all this together in a data frame. 
+```{r cluster data frame}
+featureCor.df <- data.frame(feature.cor)
+##add numberings for the features
+featureCor.df$pred1 <-1:numPreds
+## gather  so this is 46 x 46
+featureCor.df <- featureCor.df  %>% 
+  gather(pred2.name,cor,1:numPreds) %>% 
+  inner_join(data.frame(pred2.name=feature.names.ord,
+                        pred2=1:numPreds)) %>% 
+  select(-pred2.name)
+```
+
+The  heatmap showing the correlations. Note that the features are in the same order as they appear in the  dendogram. Hence, we see the  features grouped together by correlation.
+```{r}
+breakLocations=1:numPreds
+## get the midpoint of the abs(cor) for color scale
+mpt <- with(featureCor.df,median(abs(cor)))
+featureCor.df %>% 
+  ggplot()+
+  geom_tile(aes(pred1,pred2,fill=abs(cor)),color="black")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=9),
+        axis.text.y = element_text(size=7))+
+  scale_fill_gradient2(low="blue",high="red",midpoint=mpt)+
+  scale_x_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  scale_y_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  labs(title="Correlation Heatmap",
+       x="",y="")
+
+```
+
+The heatmap (looks better zoomed) shows how the features/predictors are correlated. The bright red clusters are groups that are very much alike. The bright blue clusters are features that are strongly negatively correlated. The middle white colors indicate features that are more or less uncorrelated.
+
+
+
+Generally speaking, we  want to avoid highly correlated (either postively or negatively) features in our model. The trouble is that, what constitutes "highly correlated"? Feature selection methods are ways of systematically selecting optimial (or close enough) feature sets.
+
+
+
+
+
+# Forward Selection Algorithm (Algorithm 6.2)
+At the start there are no  "model predictors" (i.e. the Null Model) and all the  predictors are the "available predictors". As long as there available predictors left, repeat the following.  
+
+* One by one, add each predictor in the "available  predictors" to the "model predictors." Call this the "augmented  predictors."  Build a linear model  using the the  "augmented  predictors". For each model, extract the R^2 value. (Note: R^2 estimates the amount of variability explained by  the model, the larger the R^2, the better).
+* Identify the predictor  that creates the model with the largest R^2 value. Add this predictor to the end of the  "model predictors" list and remove it from the "available predictors".
+
+When done (no more "available predictors"), you  have a  nested sequence of models defined by the sequence of "model predictors".  For each of these, estimate the  MSE using  cross-validation. Select the model  with the smallest MSE.
+
+
+### How to extract the R^2 value from a model
+
+Here's how it works. First, build a model. From the model, the R^2 is contained in the model summary.
+```{r}
+mod.lm <- lm(VoterProp ~ .,data=countyElection.df)
+(mod.sum <- summary(mod.lm))
+```
+
+The model summary reports all sorts of information. Of course, it gives the estimated coefficients (and their standard errors and p-values). You can see the R^2 in  there as well. 
+
+From the  model  summary, we can grab the R^2 values
+```{r rSquared}
+mod.sum$r.squared
+```
+
+
+Now we are  ready. Let's begin by defining the relevant variables. Recall that in countyElection.df, the first column is the response (VotePerc) and the remaining  columns are the predictors.
+```{r}
+## the available and model predictors
+availPreds <- 1:numPreds
+modelPreds <- c()
+```
+Now we are ready for the main loop.  
+
+
+## Main Loop
+Note: prints some relevant information  as it goes along so you can track the progress.
+```{r Main Loop}
+## keep track of the R2 for reference
+maxR2 <- c()
+##Keep going as long as there are available predictors left
+while(length(availPreds) > 0){
+    ##add predictor which increases R^2 the most
+    ##keep track of the R^2 values for reference
+    allR2 <- c()
+    for(id in availPreds){
+      ##the augmented predictors
+      augPreds <- c(modelPreds,id)
+      ## Build the data frame with the augmented predictors 
+      data.df <- countyElection.df[,c(augPreds,numPreds+1)]
+      ##the model and its summary
+      mod.curr <- lm(VoterProp ~ .,
+                     data=data.df)
+      mod.sum <- summary(mod.curr)
+      ##grab the R^2
+      allR2 <- c(allR2,mod.sum$r.squared)
+    }
+    ##Find the index of the min R^2
+    max.id <- which.max(allR2)
+    ##get the best predictor and R^2
+    bestPred <- availPreds[max.id]
+    bestR2 <- max(allR2)
+    ##Add these into the collection
+    modelPreds <- c(modelPreds,bestPred)
+    ## remove the  bestPred from  the availPreds
+    availPreds <- setdiff(availPreds,bestPred)
+    maxR2 <- c(maxR2,bestR2)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  R^2 Value: %s",bestPred,round(bestR2,3)))
+    ##print(modelPreds)
+}
+```
+The process creates an increasing  sequence  of (nested) models with increasing R^2. After a while, the increase in R^2 tails off. This is how R^2  works, it  is a non-decreasing function of the number of predictors.
+
+## MSE via Cross-validation of each model
+Out of all these models, we now want to find the "best" one. In this case, "best" is defined as having the smallest MSE, as determined by cross-validation. We expect that the model with all the predictors might be over-fitting the data. On the other  hand, the model with just one predictor doesn't have enough predictive power. Somewhere in betweeen is the best model. Let's find it.
+
+
+It will help to have a help function  to compute the cross-validated MSE.  
+```{r}
+## args: a data frame and a number of folds (default to 10).
+## ret: k-fold cross-validated MSE
+mseCV <- function(data.df,numFolds=10){
+  dataSize <- nrow(data.df)
+  folds <- sample(1:numFolds,dataSize,rep=T)
+  mse <- numeric(numFolds)
+  fold <- 5
+  for(fold in 1:numFolds){
+    train.df <- data.df[folds != fold,]
+    test.df <- data.df[folds == fold,]
+    mod <- lm(VoterProp  ~ ., 
+              data=train.df)
+    vals <- predict(mod,newdata=test.df)
+    mse[fold] <- with(test.df,mean((VoterProp-vals)^2))
+  }
+  mean(mse)
+}
+
+```
+
+
+Here's an example of how we will use this function. Suppose we  want to estimate the MSE for the model with  exactly 15 predictors.
+```{r}
+totPred <- 15
+modelPreds[1:totPred]
+data.df <- countyElection.df[, c(modelPreds[1:totPred],numPreds+1)]
+mseCV(data.df)
+```
+Ok, that was easy. Apply the process to the sequence 1,2,....numPreds.
+
+Use map_dbl to simplify the work. This means we need to build an "anonymous function" inside of map_dbl.
+
+```{r}
+allMSE <- map_dbl(1:numPreds,
+                  function(totPred) 
+                 mseCV(countyElection.df[,c(modelPreds[1:totPred],numPreds+1)]))
+
+```
+
+## Visualization
+Let's see what we have.
+
+```{r}
+data.frame(numPred=1:numPreds,
+           mse=allMSE) %>% 
+  ggplot()+
+  geom_point(aes(numPred,mse))+
+  geom_line(aes(numPred,mse))+
+  labs(title="Forward Selection: Cross-validation",
+       subtitle="Predictors selected with maximal R^2 at each  step",
+       x = "Number of Predictors",
+       y = "MSE (CV)")
+```
+It looks as if the optimal model has around 20 or fewer predictors.
+
+## Optimal Model: One Standard Error  Rule
+So how do we pick the optimal model? There are two issues in play here. First, we want to minimize MSE. Second, we want to be parsimonious, that is, we want the simplest model (fewest predictors) possible. 
+
+To balance these two competing goals, we can use the "One Standard Error Rule" which states use the simplest model within one  standard error of the minimum MSE model.  
+
+In our case, min MSE appears to be at 20 predictors. From the cross-validation, we need to get the Standard Error defined  as the variance of the MSE estimates divided by the square  root of the number of folds. Formally
+ $$SE=\sqrt{\frac{Var(MSE)}{K}}$$
+ 
+ We didn't track the SE in our original function, but we can easily modify it to compute the SE as well.
+ 
+```{r}
+## args: a data frame and a number of folds (default to 10).
+## ret: k-fold cross-validated MSE and the Standard Error
+mseCV_SE <- function(data.df,numFolds=10){
+  dataSize <- nrow(data.df)
+  folds <- sample(1:numFolds,dataSize,rep=T)
+  mse <- numeric(numFolds)
+  for(fold in 1:numFolds){
+    train.df <- data.df[folds !=fold,]
+    test.df <- data.df[folds==fold,]
+    mod <- lm(VoterProp  ~ ., 
+              data=train.df)
+    vals <- predict(mod,newdata=test.df)
+    mse[fold] <- with(test.df,mean((VoterProp-vals)^2))
+  }
+  c(mean(mse),sqrt(var(mse)/numFolds))
+}
+```
+ 
+Ok, let's dig out the the smallest model within one SE of the our 
+```{r}
+(predMin <- which.min(allMSE))
+##build this model
+data.df <- countyElection.df[,c(modelPreds[1:predMin],numPreds+1)]
+## get  both the MSE  estimate and the SE
+(mseInfo <- mseCV_SE(data.df))
+```
+
+
+Now  we need to identify the smallest predictor set within one SE of the min MSE. 
+```{r}
+## add the MSE and the SE.
+mseCut <- mseInfo[1]+mseInfo[2]
+## 
+(thePreds <- (1:numPreds)[allMSE < mseCut])
+```
+We can use the predictors starting at the minimum index.
+
+```{r}
+(optNumPreds <- min(thePreds))
+(preds.forward <- modelPreds[1:optNumPreds])
+```
+The  cross-validated estimated MSE has already been computed.
+```{r}
+(forwardMSE <- allMSE[optNumPreds])
+```
+
+
+Now we  have really reduced the number of predictors and have a very reasonable MSE. Which predictors are these??
+```{r}
+dictionary.df[preds.forward,2]
+```
+An interesting list. Some might seem more natural than others. What do you think?
+
+Of course, the list doesn't say for which of these predictors has a positive impact on VotePerc. A look at the model  summary will do  that.
+
+```{r}
+data.df <- countyElection.df[,c(preds.forward,numPreds+1)]
+mod.opt <- lm(VoterProp ~ .,data=data.df)
+summary(mod.opt)
+```
+Predictors with a positive coefficient will increase voter turnout as the predictor increases. For example,
+"EDU635213" (High school graduate or higher, percent of persons age 25+, 2009-2013
+). 
+
+On the other hand, coefficients with a negative coefficient decrease voter turnout as the predictor increases. For example, "LFE305213" (Mean travel time to work (minutes), workers age 16+, 2).
+
+Interesting. Does this makes sense to you?
+
+### Relation to correlation.
+Just out curiousity, how do these selected features relate to the correlation heatmap. Below is a somewhat involved addition to the heatmap plot which highlights the selected features. 
+```{r}
+breakLocations=1:numPreds
+## get the midpoint of the abs(cor) for color scale
+mpt <- with(featureCor.df,median(abs(cor)))
+featureCor.df %>% 
+  ggplot()+
+  geom_tile(aes(pred1,pred2,fill=abs(cor)),color="black")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=9),
+        axis.text.y = element_text(size=7))+
+  scale_fill_gradient2(low="blue",high="red",midpoint=mpt)+
+  scale_x_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  scale_y_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  labs(title="Correlation Heatmap",
+       x="",y="")+
+  theme(axis.text.x =
+          element_text(color=ifelse(feature.names.ord %in% feature.names[preds.forward],'red','white')))
+```
+
+
+# Assignment: Backward selection
+Using the same data, implement the  Backward Selection Algorithm (*Algorithm 6.3*). As with Forward Selection, use both R^2 and and MSE as the indicator of which predictor to add. In each case, of course, us cross-validation to determine the optimal model. Use backward selection to determine an optimal (parsimonious) feature/predictor set. 
+
+How do your optimal feature sets compare with each other? How do they compare with the predictor sets from the Forward Selection Algorithm?
+
+
+### Solution
+In this case we have to work backwards. One way to proceed is to  initially  define "current predictors" to be  all the predictors. 
+```{r echo=FALSE}
+# availPreds <- 1:numPreds
+# modelPreds <- c()
+# while(length(availPreds) >1){
+#   allR2 <- c()
+#   pred <- 1
+#   for(pred in availPreds){
+#     testPreds <- setdiff(availPreds,pred)
+#     data.df <- countyElection.df[,c(testPreds,numPreds+1)]
+#     mod <- lm(VoterProp ~ ., data=data.df)
+#     mod.sum <- summary(mod)
+#     allR2 <- c(allR2,mod.sum$r.squared)
+#   }
+#   max.id <- which.max(allR2)
+#   bestPred <- availPreds[max.id]
+#   ##tack the best predictor on the front
+#   modelPreds <- c(bestPred,modelPreds)
+#   availPreds <- setdiff(availPreds,bestPred)
+#   print(sprintf("Pred Added: %s  R^2 Value: %s",bestPred,round(allR2[max.id],3)))
+# }
+# ## Tack the last one on the front
+# modelPreds <- c(availPreds,modelPreds)
+## Cross-validate
+# allMSE <- map_dbl(1:numPreds, function(tot) mseCV(countyElection.df[,c(modelPreds[1:tot],numPreds+1)]))
+# ###
+# data.frame(numPreds=1:numPreds,MSE=allMSE) %>% 
+#   ggplot()+
+#   geom_point(aes(numPreds,MSE))+
+#   geom_line(aes(numPreds,MSE))+
+#   labs(title="Backward Selection: Cross-validation",
+#        subtitle="Predictors selected with maximal R^2 at each  step",
+#        x="Number of Predictor")
+
+## 1 SE Rule
+# (predMin <- which.min(allMSE) )
+# ##build this model
+# data.df <- countyElection.df[,c(modelPreds[1:predMin],numPreds+1)]
+# ## get  both the MSE  estimate and the SE
+# (mseInfo <- mseCV_SE(data.df))
+# 
+# ## add the MSE and the SE.
+# mseCut <- mseInfo[1]+mseInfo[2]
+# ## 
+# (thePreds <- (1:numPreds)[allMSE < mseCut])
+# 
+# (optNumPreds <- min(thePreds))
+# (preds.backward <- modelPreds[1:optNumPreds])
+
+## How does this compare  to the original forward selection predictors?
+# sort(preds.forward)
+# sort(preds.backward)
+
+# 
+# There is a some agreement, but usually these two sets are not identical. In  fact, due to the randomness of the cross-validation, the sets could change from run  to run. This points out the challenge of  inding an optimal predictor set. Actually, we are finding a "good enough" predictor set. 
+
+```
+# Alternative Forward selection
+Another type of forward selection uses cross-validated MSE instead of R^2 at each step. Otherwise, the process is almost identical. 
+
+In the implementation, almost everything is the same. The only now we track the minimum MSE  instead of the maximal R^2.
+
+Note: 
+
+ * For comparison to the R^2 method, we'll use modelPreds2  instead of modelPreds to track the current best  predictors.
+ * This takes  a few minutes to run due to the k-fold cross-validation at  each step of the loop. 
+ 
+```{r}
+## number of predictors
+numPreds <- ncol(countyElection.df)-1
+## the available and current predictors
+availPreds <- 1:numPreds
+modelPreds2 <- c()  ##
+##
+minMSE <- c()
+while(length(availPreds) > 15){  ##change this to zero
+    ##add predictor which decreases MSE (as determined by CV or
+    ##Bootstrapping)
+    ## The MSEs computed add each of the available predictors
+    allMSE <- c()
+    id <- 2
+    for(id in availPreds){
+      ##the augmented predictors
+      augPreds <- c(modelPreds2,id)
+      ## Build the data frame with the augmented predictors 
+      data.df <- countyElection.df[,c(augPreds,numPreds+1)]
+      ## Use CV-ed MSE, instead of R^2
+      mse <- mseCV(data.df,2)  ##using 2-fold to speed up
+      allMSE <- c(allMSE,mse)
+    }
+    ##Find the index of the min MSE
+    min.id <- which.min(allMSE)
+    ##get the best predictor and MSE
+    bestPred <- availPreds[min.id]
+    bestMSE <- min(allMSE)
+    ##Add these into the collection
+    modelPreds2 <- c(modelPreds2,bestPred)
+    availPreds <- setdiff(availPreds,bestPred)
+    minMSE <- c(minMSE,bestMSE)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  MSE Value: %s",bestPred,round(bestMSE,3)))
+    ##print(modelPreds2)
+}
+```
+As with the R^2,  the MSE continues to  improve. At the end, the improvement is pretty small.
+
+As before, we now cross-validate on the models to find the one with the minimal MSE
+```{r}
+allMSE2 <- map_dbl(1:length(modelPreds2),
+                  function(totPred) 
+                    mseCV(countyElection.df[,c(modelPreds2[1:totPred],numPreds+1)]))
+```
+Let's see what we have.
+
+```{r}
+data.frame(numPred=1:length(modelPreds2),
+           mse=allMSE2) %>% 
+  ggplot()+
+  geom_point(aes(numPred,mse))+
+  geom_line(aes(numPred,mse))+
+  labs(title="Number of Predictors vs MSE (CV)",
+       subtitle="MSE at each step",
+       x = "Number of Predictors",
+       y = "MSE (CV)")
+```
+The result is abot the same. In this case, the algorithm is a bit more general about the number of predictors. From the looks of this graph, at about 20 (once again) things flatten out. We do see the uptick at the end of the plot indicating over-fitting. Again, a reasonable choice would be to use about 20 predictors.
+
+Let's apply the "One Standard Error Rule: here.
+
+```{r}
+(predMin <- which.min(allMSE2) )
+##build this model
+data.df <- countyElection.df[,c(modelPreds2[1:predMin],numPreds+1)]
+## get  both the MSE  estimate and the SE
+mseInfo <- mseCV_SE(data.df)
+
+## add the MSE and the SE.
+mseCut <- mseInfo[1]+mseInfo[2]
+## 
+(thePreds <- (1:numPreds)[allMSE2 < mseCut])
+
+(optNumPreds2 <- min(thePreds))
+(preds.forward2 <- modelPreds[1:optNumPreds2])
+```
+Due to the randomness in the C-V, we could end up a slightly  different number of redictors.   
+
+How much agreement is there between these two sets?
+A lot...at least  most of the time
+```{r}
+sort(preds.forward)
+sort(preds.forward2)
+bothPreds <- intersect(preds.forward,preds.forward2)
+length(bothPreds)
+```
+Almost all of the predictors from the second set are in the first set. 
+
+
+## Visualization of MSE improvement
+In our predictive setting, the improvement in the MSE is the main focus. 
+
+
+Start  by getting the descriptor names in the same order as the they were selected.
+```{r}
+descr2 <- dictionary.df[modelPreds2,2]
+
+```
+
+
+Now compute the change in MSE, first tack the MSE from the null model on the front. The null model has no predictors  so the predicted response is the just the mean of the response.
+
+Cross-validate the null model predictions. This is less complicated that it looks. All we need to do  is compute the mean of the response variable (and C-V)
+```{r}
+## just a column of data
+data0 <- countyElection.df[,numPreds+1]
+N <- length(data0)
+folds <- sample(1:10,N,rep=T)
+mseVal0 <- numeric(10)
+for(fold in 1:10){
+  #a column  of responses
+  train0 <- data0[folds != fold]
+  ## easy prediction...just the mean of the response
+  pred0 <- mean(train0)
+  test0 <- data0[folds == fold]
+  mseVal0[fold] <- mean((test0 - pred0)^2)
+}
+(mse0 <- mean(mseVal0))
+```
+
+Add this to the list of estimated MSE values. Then data the differences between adjancent values. 
+```{r}
+minMSE0 <- c(mse0,minMSE)
+N <- length(minMSE0)
+## Remove last and first, then subtract
+diffMSE <- minMSE0[-N]-minMSE0[-1]
+```
+
+Package everything into a data frame.
+```{r}
+mseResults.df <- data.frame(id=1:length(descr2),
+                        descr=descr2,
+                        minMSE,
+                        ##scale the difference so it shows up better
+                        diffMSE = diffMSE)
+```
+
+
+Keep the descrs names in the proper order
+```{r}
+mseResults.df <- mseResults.df %>%
+    mutate(descr=factor(descr,levels=rev(descr)))
+```
+
+
+
+Now we can create a  simple plot of the change in MSE values as predictors are added.
+```{r}
+mseResults.df %>% 
+  ggplot()+
+  geom_bar(aes(descr,diffMSE),
+           stat="identity",fill="red")+
+  coord_flip()+
+  ggtitle("Forward Selection with MSE: MSE Change")
+```
+
+The advantage of this graphic is that is shows the relative "importance" of each predictor  as they are added to the model. We can also clearly see  what after about 15 or so predictors, there is relative little improvement in MSE reduction.
+
+Note: this graphic looks much better zoomed.
+
+
+
+ 
+ 

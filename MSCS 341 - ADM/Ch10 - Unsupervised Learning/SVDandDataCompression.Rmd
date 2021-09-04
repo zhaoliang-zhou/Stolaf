@@ -1,0 +1,95 @@
+---
+title: "Image Compression"
+author: "Matt Richey"
+date: "4/27/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+# Setup and Load Libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+Load libraries
+```{r}
+suppressMessages(library(tidyverse))
+```
+
+# Introduction
+This a little off the beaten path, but it's fun to see how SVD  can be used for data compression.
+
+
+# Data
+Load an image file of greyscale  values.
+```{r}
+dataDir <- "/Users/richeym/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap10"
+dataFile <- "Mandela.csv"
+mandela.mat <- read.csv(file.path(dataDir,dataFile))
+mandela.mat <-  scale(mandela.mat,scale=F)
+dim(mandela.mat)
+```
+Hence we have a 400 x 468 dimenional image of Nelson Mandela.
+
+```{r}
+image(mandela.mat,col=grey.colors(256))
+```
+
+Perform a SVD decomposition
+```{r}
+man.svd <- svd(mandela.mat)
+```
+
+Here are the u, d, and v matrices
+```{r}
+U <- man.svd$u
+D <- man.svd$d
+V <- man.svd$v
+dim(U)
+```
+
+
+
+For any value k=1,2,...64 we can create the best "rank k" approximation to rectCat by only using k of the orthonormal bases U and V and the first k columns of the diagonal matrix D.
+
+
+Let's try k=10. 
+```{r}
+k <- 10
+compMan <-  U[,1:k] %*% diag(D[1:k]) %*% t(V[,1:k])
+image(compMan,col=grey.colors(256))
+
+```
+
+Sorta blury, but note that
+
+   * U[,1:k] and V[,1:k] are both is 400 x k
+   * D[1:k,1:k] is has k nonzero entries
+   
+Hence the total amount of data needed for this is approximately 800k. For k=10, this is about 8000. The uncompressed image  requires 400*468 = [1] 187200 units.
+
+
+
+Build a sequence of compressions. The last one is the full image
+```{r}
+kvals <- c(2,4,8,16,32,64,128,256,400)
+
+op <- par(mfrow=c(3,3),mai=c(0.02,0.,0,0))
+for(k in kvals){
+ compMan <-  U[,1:k] %*% diag(D[1:k]) %*% t(V[,1:k])
+image(compMan,col=grey.colors(256))
+}
+par(op)
+
+```
+
+By the time k=64, the image is fairly sharp. This image requires 800*64=51200 units. Compared with the original this represents only 27% of the size!
+
+
+```{r}
+k <- 64
+compMan <-  U[,1:k] %*% diag(D[1:k]) %*% t(V[,1:k])
+image(compMan,col=grey.colors(256))
+
+```

@@ -1,0 +1,553 @@
+---
+title: "Introduction to Penalized Regression and Bias-Variance"
+author: "Matt Richey"
+date: 03/11/2020
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+
+#A simple  regression example
+Set up dimensions
+```{r}
+p <- 4
+n <- 10
+dat <- runif(n*p,-5,5)
+X <- matrix(dat,nrow=n)
+```
+
+
+append 1's in  first column to account  for constant term
+```{r}
+X1 <- cbind(1,X)
+```
+
+
+generate a response and buid a data frame
+```{r}
+Y <- runif(n,-10,10)
+data.df <- data.frame(y=Y,X)
+names(data.df)
+
+```
+
+
+Linear regression
+```{r}
+mod <- lm(y ~ .,data=data.df)
+coef(mod)
+
+
+```
+
+
+Make the  prediction on the data
+```{r}
+(pred1 <- predict(mod))
+
+```
+
+
+Find this via linear algebra
+```{r}
+XtX <- t(X1) %*% X1
+XtXinv <- solve(XtX)
+XtXinv%*% t(X1)%*% Y
+```
+
+
+Same as before.. as it should be
+Make prediction.
+Hat matrix.
+```{r}
+H <- X1 %*% XtXinv%*% t(X1)
+```
+
+
+
+```{r}
+(pred2 <- H %*% Y)
+
+```
+
+
+Compare
+```{r}
+cbind(pred1,pred2)
+
+```
+
+
+What if X is not full rank? That means there are redundant  columns
+Add a couple redundant  columns to X
+```{r}
+Xred <- cbind(X, X%*%c(1,2,3,4), X%*%c(-3,1,-3,0))
+```
+
+
+build
+```{r}
+data.df <- data.frame(y=Y,Xred)
+mod2 <- lm(y~.,data=data.df)
+```
+
+
+The first clue that  something is  wrong is when we look at the summary
+```{r}
+summary(mod2)
+
+```
+
+
+this is also suspicious..
+```{r}
+(pred1 <- predict(mod2))
+
+```
+
+
+Try the linear algebra
+same steps as before
+```{r}
+X1 <- cbind(1,Xred)
+XtX <- t(X1) %*% X1
+```
+
+
+Things go bad here
+```{r}
+XtXinv <- solve(XtX)
+
+
+
+```
+
+
+Let's add in a perturbation of XtX via a little  additiveand  lambda
+```{r}
+lambda <- 1
+
+```
+
+
+Rebuild everything with the lambda perturbation
+```{r}
+XtX0 <- XtX+lambda * diag(rep(1,p+3))
+```
+
+
+Now this is invertable
+```{r}
+XtXinv <- solve(XtX0)
+```
+
+
+And we can calculate  coefficients
+```{r}
+XtXinv%*% t(X1)%*% Y
+```
+
+
+What about some predictions
+```{r}
+Hred <- X1 %*% XtXinv %*%t(X1)
+(pred2 <- Hred%*%Y)
+
+
+```
+
+
+Are these the same? Or even close?
+```{r}
+cbind(pred1,pred2)
+```
+
+
+Yes, they are close.
+
+## Linear Regression  vs.  Ridge Regression
+
+We will be looking at Ridge Regression vs Linear Regression and their
+Bias/Variance Effect on coefficient estimation
+
+
+Load the libraries
+```{r}
+library(MASS)
+library(tidyverse)
+library(glmnet) ## for ridge regression
+
+```
+
+
+## Bias-Variance of Coefficient Estimation
+
+Set up some paraments  
+p is the number of predictors  
+N is the sample size  
+```{r}
+p <- 2
+N <- 5
+
+```
+
+
+
+Build the model with regression coefficients b1 and b2 (no
+intercept) and with error term with sd
+```{r}
+sig <- 2
+b1 <- 3
+b2 <- 2
+
+```
+
+
+
+Generate a number of data seta build  Ordinary Least Squares (OLS) models. Keep track of the estimated coefficients. These should be unbiased estimators of
+the true value
+
+Make sure the data are zero mean in each predictor
+
+```{r}
+buildData <- function(N,b1,b2,sig){
+  x1 <- rnorm(N,0,1)
+  x2 <- rnorm(N,0,1)
+  ##zero mean
+  x1 <- x1-mean(x1)
+  x2 <- x2-mean(x2)
+  ##no constant term
+  y <- b1*x1+b2*x2+rnorm(N,0,sig)
+  data.frame(x1,x2,y)
+}
+
+data.df <- buildData(1000,b1,b2,sig)
+data.df %>% 
+  ggplot()+
+  geom_point(aes(x1,x2))+
+  geom_hline(aes(yintercept=0),color="red")+
+  geom_vline(aes(xintercept=0),color="red")
+
+
+
+```
+
+
+Force the model to have no constant term    
+```{r}
+mod.lm <- lm(y ~ 0 + x1 + x2,data=data.df)
+summary(mod.lm)
+
+
+```
+
+
+### Not so good an alternative
+Allow constant term     and see what happens
+```{r}
+mod.lm <- lm(y ~  x1 + x2,data=data.df)
+```
+
+
+Same as
+```{r}
+mod.lm <- lm(y ~ 1 + x1 + x2,data=data.df)
+
+```
+
+
+It should still predict a constant term of (close to) zero. 
+```{r}
+summary(mod.lm)
+```
+
+
+Since we know there isn't a constant term, don't include one in the model
+(Don't predict things you already know)
+
+
+
+
+## Where were  we
+
+Here's the plan....
+Build a large number of models, each with the same underlying  structure
+
+Keep track of the predicted coefficients
+```{r}
+K <- 200
+coef.est <- matrix(0,nrow=K,ncol=2)
+for(k in 1:K){
+  data.df <- buildData(N,b1,b2,sig)
+  ##no constant term    
+  mod.lm <- lm(y~x1+x2+0,data=data.df)
+  cc.lm <- coefficients(mod.lm)
+  coef.est[k,] <- cc.lm
+}
+
+
+```
+
+
+Pack into a data frame  in order to plot
+```{r}
+coef_lm.df <- data.frame(b1.est=coef.est[,1],
+                      b2.est=coef.est[,2],
+                      type="lm")
+
+```
+
+
+Here are the coefficient estimates
+If all goes well, we should see an unbiased estimate.
+```{r}
+ggplot(coef_lm.df,aes(b1.est,b2.est))+
+    geom_point(color="blue")+
+    ##True values of b1 and b1
+    geom_point(aes(b1,b2),size=4,color="black")+
+  scale_x_continuous("b1 est")+
+  scale_y_continuous("b2 est")+    
+  coord_fixed()+
+  labs(title="Bias and Variance: Linear Model",
+       subtitle="Actual coeficients in black")
+
+
+
+```
+
+
+Ridge regression
+Here's how to use it
+```{r}
+data.df <- buildData(N,b1,b2,sig)
+```
+
+
+As with KNN, ridge wants matrices, not data frames.
+```{r}
+train.x <- data.matrix(data.df[,1:2])
+train.y <- data.matrix(data.df[,3])
+
+```
+
+
+let 'er rip.  
+* intercept=FALSE reflects the fact we know we have zero mean data.
+* alpha = 0 means  use  ridge (versus lasso)
+*b lambda=1  is our lambda  value
+```{r}
+mod.ridge <- glmnet(train.x,train.y,intercept=FALSE,alpha=0,lambda=1)
+summary(mod.ridge)
+coef(mod.ridge)
+
+```
+
+
+Predictions with ridge are straightforward
+```{r}
+test.df <- buildData(N,b1,b2,sig)
+test.x <- data.matrix(test.df[,1:2])
+(pred.ridge <- predict(mod.ridge,newx=test.x))
+
+
+```
+
+
+
+Build a both a ridge regression (with lambda.val) and linear model
+Keep track of the coefficient estimates for each of K iterations
+Note: the data has  mean = 
+
+Arbitrary choice of lambda
+```{r}
+lambda.val <- 1.0
+```
+
+
+Number of reps
+```{r}
+K <- 200
+coef.est <- matrix(0,nrow=K,ncol=2)
+for(k in 1:K){
+    data.df <- buildData(N,b1,b2,sig)
+    train.x <- data.matrix(data.df[,1:2])
+    train.y <- data.matrix(data.df[,3])
+    mod.ridge<- glmnet(train.x,train.y,alpha=0,intercept=FALSE,lambda=lambda.val)
+    cc.ridge <- coefficients(mod.ridge)
+    coef.est[k,] <- cc.ridge[2:3]
+}
+
+
+```
+
+
+Pack these coefficients together
+```{r}
+coef_ridge.df <- data.frame(b1.est=coef.est[,1],
+                      b2.est=coef.est[,2],
+                      type="ridge")
+
+```
+
+
+and a plot...we should see some bias now.
+```{r}
+ggplot(coef_ridge.df,aes(b1.est,b2.est))+
+  geom_point(color="red",size=2)+
+  geom_point(aes(b1,b2),size=5,color="black") +
+  scale_x_continuous("b1 est")+
+  scale_y_continuous("b2 est")+    
+  coord_fixed()+
+  labs(title="Bias and Variance: Ridge",
+       subtitle="Actual coefficient in black")
+
+
+```
+
+
+Combine the two coefficient sets
+```{r}
+coef.df<-bind_rows(coef_lm.df,coef_ridge.df)
+
+```
+
+
+look at both together
+```{r}
+ggplot(coef.df)+
+  geom_point(aes(b1.est,b2.est,color=type))+
+  scale_color_manual(values=c("blue","red"))+
+  geom_point(aes(b1,b2),size=3,color="black")+
+  coord_fixed()+
+  labs(title="Bias and Variance: LM and Ridge",
+       color="Model Type")
+
+```
+
+
+
+What about the error and  variability?
+```{r}
+coef.df %>%
+  group_by(type)%>%
+  summarize(err_b1 = mean((b1-b1.est)^2),
+            var_b1= var(b1.est),
+            err_b2 = mean((b2-b2.est)^2),
+            var_b2= var(b2.est))
+```
+
+
+Using Ridge Regression with a penalty term decreses the MSE and the variability.
+
+Repeat the computation with different lambda value.
+What happens as lambda approaches 0 and what happens as lambda  gets really large?
+
+
+
+
+OK...for the coefficients,  we can decrease the variability and the error. 
+What about prediction?
+
+
+Repeat the process with prediction as the goal
+```{r}
+N <- 5
+K <- 500
+lambda.val <- 1000.1
+mse.est <- matrix(nrow=K,ncol=2)
+for(k in 1:K){
+  train.df <- buildData(N,b1,b2,sig)
+  test.df <- buildData(N,b1,b2,sig)
+  ##no constant term    
+  train.x <- data.matrix(train.df[c("x1","x2")])
+  train.y <- data.matrix(train.df[c("y")])
+  test.x <- data.matrix(test.df[c("x1","x2")]) 
+  ## Ridge  regression
+  mod.ridge <- glmnet(train.x,train.y,lambda=lambda.val,intercept=FALSE,alpha=1)
+  pred <- predict(mod.ridge,newx=test.x)
+  err.ridge <- with(test.df,mean( (y-pred)^2))
+  ## linear model
+  mod.lm <- lm(y ~ . + 0, data=train.df)
+  pred <- predict(mod.lm,newdata=test.df)
+  err.lm <- with(test.df,mean( (y-pred)^2))
+  mse.est[k,] <- c(err.lm,err.ridge)
+}
+apply(mse.est,2,mean)
+
+
+
+```
+
+
+
+A more robust data building function. 
+
+This one allows arbitrary number of predictors
+
+
+```{r}
+p <- 15
+```
+
+
+Create some random coefficients
+```{r}
+coefs <- sample((-10):10,p,rep=T)
+
+```
+
+
+Here's the function.
+```{r}
+buildData2 <- function(N,coef,sig){
+  p <- length(coefs)
+  dat <- matrix(rnorm(N*p, 0, 2),nrow=N,ncol=p)
+  cMeans <- colMeans(dat)
+  dat <- dat-matrix(rep(cMeans,each=N),
+                    nrow=N,ncol=p,byrow=F)
+  y <- dat %*% coefs+rnorm(N,0,sig)
+  data.frame(y,dat)
+}
+```
+
+
+Test it out
+```{r}
+sig <- 10
+N <- 15
+p <- 14
+coefs <- sample((-10):10,p,rep=T)
+buildData2(5,coefs,sig)
+```
+
+
+Now we can model with both  ridge and lm.
+```{r}
+K <- 25
+lambda.val <- 1
+mse.est <- matrix(nrow=K,ncol=2)
+for(k in 1:K){
+  print(k)
+  train.df <- buildData2(N,coefs,sig)
+  test.df <- buildData2(N,coefs,sig)
+  ##no constant term    
+  train.x <- data.matrix(train.df[,-1])
+  train.y <- data.matrix(train.df[,1])
+  test.x <- data.matrix(test.df[,-1])  
+  mod.ridge <- glmnet(train.x,train.y,lambda=lambda.val,intercept=FALSE,alpha=0)
+  pred <- predict(mod.ridge,newx=test.x)
+  err.ridge <- with(test.df,mean( (y-pred)^2))
+  ## linear model
+  mod.lm <- lm(y ~ . + 0, data=train.df)
+  pred <- predict(mod.lm,newdata=test.df)
+  err.lm <- with(test.df,mean( (y-pred)^2))
+  mse.est[k,] <- c(err.lm,err.ridge)
+}
+apply(mse.est,2,mean)
+```
+
+
+Conclusion. Ridge regression can "tame" unruly models, especially when the number of predictors
+is close to or larger  than the number of observations.

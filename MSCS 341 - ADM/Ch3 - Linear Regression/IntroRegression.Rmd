@@ -1,0 +1,809 @@
+---
+title: "Linear Regression and Beyond"
+author: "Matt Richey"
+date: "2/15/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+```{r}
+library(tidyverse)
+library(broom)
+
+```
+
+
+#Introduction:  Linear Regression
+Let's take a quick tour of linear regression.
+
+**Underlying assumption: We have a linear model** 
+
+
+We start with
+
+$$y=f(x_1,x_2,\dots,x_n)+\epsilon$$ 
+
+where $f$ is linear in the inputs
+$x_1,\dots, x_n$ and $\epsilon \sim N(0,\sigma)$. That is,
+
+$$f(x_1,x_2,\dots,x_n)=b_0+b_1x_1+\cdots+b_nx_n.$$
+and $\epsilon$ is normally distributed with mean 0 and variance $\sigma^2$.
+Thus,
+$$E[y|x]=f(x_1,x_2,\dots,x_n).$$
+
+##Synthetic Example
+
+Build some synthetic data. Let's use the  simplest case where $n=1$,
+$$f(x_1)=b_0+b_1x_1.$$
+
+```{r First Ch}
+N <- 50  ##sample size
+b0 <- 1
+b1 <- 3
+sigma <- 2
+## build the  data frame
+##Generate the inputs. 
+x <- rnorm(N,0,1)
+## The responses.
+f <- function(x) b0+b1*x
+y <- f(x)+rnorm(N,0,sigma)
+## Data frame
+data.df <- data.frame(x,y)
+```
+
+Better yet, add a buildData function
+```{r}
+buildData <- function(N,b0,b1,sigma){
+  x <- rnorm(N,0,1)
+  y <-f(x)+rnorm(N,0,sigma)
+  data.frame(x,y)
+}
+```
+Try it out..
+```{r}
+data.df <- buildData(N,b0,b1,sigma)
+```
+
+How's it look?
+```{r}
+ggplot(data.df)+
+    geom_point(aes(x,y))+
+  labs(title="Synthetic Data from a linear model")
+```
+And the  linear regression  model
+```{r}
+mod <- lm(y~x,data=data.df)
+summary(mod)
+
+```
+
+Note that all the model contains are the coefficients: intercept and slope.
+
+These are computed directly from the data.
+In effect, the data with N points, has been reduced to (modeled with)  2 numbers.
+```{r}
+mod$coef
+```
+
+
+Visual analysis of the linear model: R has some nice tools for analyzing a linear model
+```{r}
+plot(mod)
+
+```
+
+
+Now let's predict on the training data.
+```{r}
+preds <- predict(mod)
+data.df$pred <- preds
+head(data.df)
+```
+
+```{r}
+ggplot(data.df)+
+    geom_point(aes(x,y))+
+  geom_line(aes(x,pred),color="red")+
+  labs(title="Synthetic Data from a linear model",
+       subtitle="Linear Regression Predictions")
+```
+
+As we've seen MSE is a good guide of the effectiveness of the model. It is also an estimator (slightly biased on the low side here) of variance.
+```{r}
+(mse.train <- with(data.df,mean((y-pred)^2)))
+sigma^2
+```
+
+
+### Estimator: Biased versus unbiased.
+If you want an unbiased estimator of the variance, then MSE needs to be corrected by a factor of N/N-2 (use SSE/(N-2) instead of MSE=SSE/N).
+
+Here's a quick demonstration.
+```{r}
+numReps <- 10000
+mseVals <- rep(0,numReps)
+sigma
+for(nr in 1:numReps){
+  ##Build a  model each time
+  data.df0 <-  buildData(N,b0,b1,sigma)
+  mod0 <- lm(y~x,data=data.df0)
+  pred0 <- predict(mod0)
+  ##Collect the MSE values
+  mseVals[nr] <- with(data.df0,mean((y-pred0)^2))
+}
+##Compare..here the mseVals are biased (low)
+c(sigma^2,mean(mseVals))
+## Better..
+c(sigma^2,mean(mseVals)*N/(N-2))
+```
+Anyways....
+
+## Where were we..
+Or, since this is a linear model, use the coefficients to plot the predictions.
+```{r}
+##Extract the itercept and slope
+b0_hat <- mod$coef[1]
+b1_hat <- mod$coef[2]
+b0_hat
+b1_hat
+```
+Plot it
+```{r}
+gg1 <- ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+  ##abline is easy
+    geom_abline(aes(intercept=b0_hat,slope=b1_hat),color="red")+
+    labs(title="Synthetic Data from a linear model",
+       subtitle="Linear Fit Added")
+gg1
+
+```
+
+
+
+The residuals are visualized as the vertical difference between the
+predictions and the actual values.
+```{r}
+ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+    geom_abline(aes(intercept=b0_hat,slope=b1_hat),color="red")+
+    geom_segment(aes(x=x,xend=x,y=y,yend=pred),color="black")+
+    labs(title="Linear Fit with Residuals")
+
+```
+
+
+**Fact: the coefficients of the linear model minimize the MSE.**
+
+In other words, let $f(x)=a_0+a_1x$ be any linear prediction, and
+define $mse(a_0,a_1)$ as the average squared loss over the
+data. This function is minimized when $(a_0,a_1)$ equal the values of $(b_0,b_1)$ 
+given by lm.
+
+## Quick Coding Exercise
+
+
+ * For our scenario, define the function
+$$mse(a_0,a_1)=\frac{1}{N}\sum_{i=1}^N (y_i-(a_0+a_1x_i))^2$$
+which  depends on the choice of the linear coefficients a0 (intercept) and a1 (slope).
+
+ * Evaluate mse over a grid of values surrounding the values of
+b0 and b1 given above. 
+
+ * Show empirically that mse is mimimal at the coefficient
+values given by lm (slope =`r b0_hat` and intercept=`r b1_hat`).
+
+
+Step 1:
+This is a function that compute the means square error. Make it a  function
+of a0,  a1
+```{r}
+mseFunc <- function(a0,a1){
+   with(data.df,mean((y-(a0+a1*x))^2))
+}
+
+mseFunc(1,6)
+mseFunc(-2,-6)
+```
+
+Build the grid around the values of b0 and b1 we used to create the data.
+
+Use expand.grid (of course). 
+```{r}
+K <- 50
+b0_vals <- b0 + seq(-2,2,length=K)
+b1_vals <- b1 + seq(-2,2,length=K)
+grid_vals <- expand.grid(b0_vals,b1_vals)
+grid.df <- data.frame(a0=grid_vals[,1],a1=grid_vals[,2])
+
+```
+
+
+Apply the function to all  the  grid values. 
+```{r}
+grid.df <- grid.df %>% 
+  rowwise() %>% 
+  mutate(mse=mseFunc(a0,a1))
+with(grid.df,summary(mse))
+```
+
+
+Plot the mse values in (a0,a1) plane, colored according  to  mse.
+
+```{r}
+grid.df %>% 
+  ggplot()+
+  geom_tile(aes(a0,a1,fill=mse))+
+  scale_fill_gradient2(low="blue",high="red",midpoint=7)
+```
+It certainly appears as if the min is in the right place.
+
+Dig it out...
+```{r}
+(min_loc <- with(grid.df,which.min(mse)))
+grid.df[min_loc,]
+```
+Compares well to the values obtained from lm. (The only difference is a result of the resolution of the grid)
+
+```{r}
+c(b0_hat,b1_hat)
+```
+
+##Prediction Intervals
+A prediction interval describes the region in which you can expect
+to find the predicted mean at each input value. There are formulas
+for the prediction values (see ISLR).
+
+Here is how you produce 95% prediction intervals in R.
+```{r}
+xvals <- seq(-3,3,length=100)
+pred1 <-
+    predict(mod,interval="confidence",newdata=data.frame(x=xvals),level=0.95)
+pred2.df <- data.frame(pred1)
+
+```
+
+
+and a plot....
+```{r}
+gg.pred.lm <- ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+    geom_line(data=pred2.df,aes(x=xvals,y=fit),color="red")+
+    geom_line(data=pred2.df,aes(x=xvals,y=lwr),color="red")+
+    geom_line(data=pred2.df,aes(x=xvals,y=upr),color="red")+
+       labs(title="Linear Regression",
+            subtitle="95% Prediction (of means) Interval")
+gg.pred.lm
+
+
+```
+Note the "bow tie" shape. The Prediction intervals get  wider near the edges of the  data.
+
+R will also give a predicted response interval. The predicted
+response takes into account both the variability of the mean and
+variability of the response be a random variable about the
+mean. There are analytic expressions for this value as well.
+
+```{r}
+resp <- predict(mod,interval="prediction",
+                 newdata=data.frame(x=xvals),
+                 level=0.95)
+resp.df <- data.frame(resp)
+
+```
+
+
+....and the plot. Notice this captures almost all of the points.
+```{r}
+gg.pred2 <- ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+    geom_line(data=resp.df,aes(x=xvals,y=fit),color="blue")+
+    geom_line(data=resp.df,aes(x=xvals,y=lwr),color="blue")+
+    geom_line(data=resp.df,aes(x=xvals,y=upr),color="blue")+
+    ggtitle("95% Interval for Predicted Responses")
+gg.pred2
+
+
+```
+Note how much wide the predicted responses are in comparison to the predicted means. 
+
+
+# Bootstrapping
+As described in ISLR, there are well-known formulae for the prediction intervals (mean and response). These are dependent on the theoretical underpinning of the linear regression model. Moving forward, we more often than not will fail to have a strong theoretical mathematical model that allows the derivation of exact expressions. Still, we want to know about the variability.
+
+We can repeat most of what we saw above by digging the variability
+information out of the data.
+
+A **bootstrap** sample is a sample of the same size as the original
+data set obtained by sampling the original data n times with
+replacement. Thanks Brad Efron!
+[Check out](https://en.wikipedia.org/wiki/Bootstrapping_(statistics))
+for more information on bootstrapping. We will be looking at this
+in more detail later.
+
+It's very easy to implement. Here's how it goes..
+```{r}
+N <- nrow(data.df) ## we already know this, but what the heck
+(bootSample <- sample(1:N,N,rep=T))
+boot.df <- data.df[bootSample,]
+
+```
+The  new data frame boot.df has the same size as the original data.df. All the observations are taken from data.df. Some are repeated, others are left out. Importantly, it represents as new draw from the "population"
+
+A bootstrapped model...
+```{r}
+mod.boot <-lm(y~x,
+              data=boot.df)
+
+```
+
+
+The bootstrapped model and the original model are similar (as they should be).
+```{r}
+summary(mod.boot)
+coef(mod.boot)
+```
+```{r}
+summary(mod)
+coef(mod)
+```
+
+
+
+Bootstrapping is a way to simulate the generation of sample data,
+without having to go get more data.
+
+Let's use bootstrapping to estimate the variability of the
+estimated coefficients
+
+Plan: Repeat the bootstrapping a large number of times.
+Keep track of the estimated coefficients each time.
+```{r}
+numBoots <- 1000
+N <- nrow(data.df)
+## One column for b0, one for b1
+coefs.boot <- matrix(nrow=numBoots,ncol=2)
+for(m in 1:numBoots){
+   ## Bootstrapping...
+    bootSamp <- sample(1:N,N,rep=T)
+    boot.df <- data.df[bootSamp,]
+    mod.boot <-lm(y~x,
+                  data=boot.df)
+    ##extract the coefficients
+    coefs.boot[m,] <- coef(mod.boot)
+}
+
+```
+
+
+A histogram of the estimated slopes
+```{r}
+coef.df <- data.frame(boot=1:numBoots,
+                      intercept=coefs.boot[,1],
+                      slope=coefs.boot[,2])%>% 
+  gather(type,val,intercept:slope)
+
+coef.df  %>% 
+  ggplot()+
+  geom_histogram(aes(val,fill=type),color="white",bins=50)+
+  labs(title="Distribution of coefficients")
+
+
+```
+
+
+The Means and standard deviations of the coefficients
+```{r}
+coef.df %>% 
+  group_by(type) %>% 
+  summarize(mu=mean(val),
+            sdev=sd(val),
+            tot=n())
+
+```
+
+
+Compare this the original linear model. Pay special attention to the
+estimates and their SEs.
+```{r}
+summary(mod)
+```
+Very similar. Notice how we could estimate the SE of the coefficients directly from the data, not reference to external formulae!
+
+
+## Bootstrapped Predictions
+
+```{r}
+coef.df %>% 
+  spread(type,val) %>% 
+  ggplot()+
+  geom_point(data=data.df,aes(x,y))+
+  geom_abline(aes(intercept=intercept,slope=slope,group=boot),
+              alpha=.05)+
+  labs(title="Predictions from Bootstrapping")
+```
+Note the "bow tie" look to these prediction functions.
+
+In order to get the traditional 95% Prediction Intervals, we need to extract 
+the middle 95% from each input value. We will do this later when we look at a different prediction method (loess).
+
+## Predicted Responses
+We can also use bootstrapping to estimate the prediction interval
+for the means (as we did above). This is a little trickier and we won't do it here. The idea is that you bootstrap to get the regression line for each bootstrapped sample. From this, you use the fact that the response is normally distributed around the predicted value. The variance of the normal distribution is estimated by the MSE. Use this information to sample from the normal with the predicted mean and variance. Keep doing this for each bootstrap.
+
+# Mean Squared Error via bootstrapping
+MSE...this is the quantity in which we are most interested!
+
+The challenge is in any one  realization of the data, we can compute a MSE. But how variable would this be over many samples? To find out, we 
+bootstrap the MSE!
+
+Note: this approach will work for any estimated value.
+
+```{r}
+numBoots <- 1000
+N <- nrow(data.df)
+## here we go.....
+mses.boot <- array(dim=numBoots)
+for(m in 1:numBoots){
+    bootSamp <- sample(1:N,N,rep=T)
+    boot.df <- data.df[bootSamp,]
+    ## the model
+    mod.boot <-lm(y~x,
+                  data=boot.df)
+    preds <-  predict(mod.boot)
+    ##the mse values
+    mses.boot[m] <-with(boot.df,mean((y-preds)^2))
+}
+
+```
+
+
+Let's see what we have.
+```{r}
+ggplot()+
+  geom_histogram(aes(mses.boot),fill="blue",color="white",bins=100)+
+    labs(title="MSE Variability: Linear Model")
+```
+The histogram summarizes both the estimate of MSE and its variability
+
+Should compare well with MSE seen earlier. It's nice to get an idea
+of variability as well.
+```{r}
+c(mean(mses.boot),sd(mses.boot), var(mses.boot))
+```
+
+
+
+# Prediction without linear models: Loess
+Let's look at an example of prediction on the same data set that
+doesn't use a linear model. The beauty of bootstrapping is that the approach is easily adapted to almost any prediction method.
+
+As an example, we will use the **loess** (local
+regression). In many ways, it looks a lot like using a linear model.
+
+Later, we will look more closely at how loess works. For now, treat is a new prediction tool.
+
+Here's how it works. There is a control parameter called the **span.** 
+```{r}
+data.df <- data.df[c("x","y")] ##clean up the data
+theSpan <- 0.75
+mod.loess <- loess(y~x,span=theSpan,data=data.df)
+```
+
+
+Make predictions...
+```{r}
+preds <- predict(mod.loess)
+data.df$pred.loess <- preds
+```
+
+Plot values from the loess prediction
+```{r}
+ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+    geom_line(aes(x,pred.loess),color="red")+
+    labs(title="Loess Prediction",
+         subtitle=sprintf("Span=%s",theSpan))
+```
+Note how the nonlinear loess prediction picks up local variability in the data. 
+
+For fun: Change the span to see how this affects the fit.
+
+
+## Predictions with Loess
+Loess can only make predictions over the range of the original data.
+
+Now we can predict
+```{r}
+pred.df <- data.frame(x=xvals,y=f(xvals)+rnorm(N,0,sigma))
+pred.loess <- predict(mod.loess,newdata=pred.df)
+```
+
+It's worth noticing here that loess will not make predictions outside the range of the original data on which it was built.
+
+When you do predict outside the original interval, loess returns NA.
+```{r}
+cbind(xvals,pred.loess)
+```
+
+
+MSE is  computed the usual way.
+```{r}
+(mse.loess <- with(pred.df,mean((y-pred.loess)^2,na.rm=T)))
+```
+
+There are no analytic formualas for the prediction interval for the
+loess model. However, we can get them via bootstrapping just as before
+
+## Loess MSE variability
+We can also do  MSE estimation via bootstrapping. 
+
+Here's a way to do, using bootstrapping to generate new data each time through. 
+```{r}
+numBoots <- 1000
+mses.boot.lo <- array(dim=numBoots)
+for(m in 1:numBoots){
+    bootSamp <- sample(1:N,N,rep=T)
+    boot.df <- data.df[bootSamp,]
+    ## the model
+    mod.boot <-loess(y~x,span=theSpan,
+                     data=boot.df)
+    preds <-  predict(mod.boot,newdata=boot.df)
+    mses.boot.lo[m] <-with(boot.df,mean((y-preds)^2,
+                                        ##avoid NAs
+                                        na.rm=T))
+}
+```
+
+```{r}
+ggplot()+
+  geom_histogram(aes(mses.boot.lo),fill="red",color="white",bins=100)+
+  labs(title="MSE Variability: Loess")
+```
+
+Here's are the values of the estimate and variability
+```{r}
+c(mean(mses.boot.lo),sd(mses.boot.lo),var(mses.boot.lo))
+
+```
+
+Compares reasonably well to lm (as well it should!)
+
+
+## Loess Prediction Intervals.
+We can also build prediction  intervals. The idea is  pretty simple.
+Repeat the bootstrapping M times
+Keep track of the estimated predictions.
+From the predictions, extract 95% confidence intervals.
+```{r}
+##
+data.df <- data.df[c("x","y")] ##clean up the data
+pred.df <- data.frame(x=xvals)
+
+##
+numBoots <- 1000
+theSpan <- 0.75
+## One row for each prediction value, one column for each Boot
+preds.boot <- matrix(nrow=nrow(pred.df),
+                     ncol=numBoots
+                     )
+for(m in 1:numBoots){
+    bootSamp <- sort(sample(1:N,N,rep=T))
+    boot.df <- data.df[bootSamp,]
+    ## Build a bootstrapped loess model
+    mod.boot <-loess(y~x,
+                     span=theSpan,
+                  data=boot.df)
+    
+    ##Make predictions
+    preds.boot[,m] <- predict(mod.boot,newdata=pred.df)
+}
+
+```
+
+The matrix preds.boot, the rows are  the input values (x values) and the columns are the predictions from each of the bootstrap runs. At each row, we want to extract the limits of the middle 95% of the data.
+
+```{r}
+getLimit <- function(data,lim) {
+    quantile(data,probs=lim,na.rm=T)
+}
+```
+Here's a 95% confidence (coverage) interval for the first x value.
+```{r}
+n0 <- 25
+c(getLimit(preds.boot[n0,],.025),
+  getLimit(preds.boot[n0,],.975))
+```
+
+We can extract these limits (and the middle) for all the input values. 
+```{r}
+pred.df$pred <- apply(preds.boot,1, 
+                      function(ls) median(ls,na.rm=T))
+pred.df$upr <- apply(preds.boot,1, 
+                     function (ls) getLimit(ls,0.975))
+pred.df$lwr <- apply(preds.boot,1, 
+                     function (ls) getLimit(ls,0.025))
+```
+
+
+and the graph...
+```{r}
+gg.pred.lo <- ggplot(data.df)+
+    geom_point(aes(x,y),color="blue")+
+    geom_line(data=pred.df,aes(x,pred),color="red")+
+    geom_line(data=pred.df,aes(x,upr),color="red")+
+    geom_line(data=pred.df,aes(x,lwr),color="red")+
+  labs(title="Loess Regression",
+            subtitle="95% Prediction (of means) Interval")
+gg.pred.lo
+```
+
+
+Compare prediction intervals
+```{r}
+library(gridExtra)
+grid.arrange(gg.pred.lo+scale_y_continuous(limits=c(-10,10)),
+gg.pred.lm+scale_y_continuous(limits=c(-10,10)),
+nrow=1)
+
+
+```
+
+Which is better? Depends. In this case, the underlying data came from a  linear model, hence it's hard to be a linear regression.
+
+
+##Other data-centric approaches to MSE estimations
+Here is an synthetic scenario. We recreate the  data M times, each
+time build a train and test combo.
+```{r}
+M <- 1000
+mse.vals <- matrix(nrow=M,ncol=2)
+for(m in 1:M){
+    x <- rnorm(N,0,1)
+    y <- b0+b1*x+rnorm(N,0,sigma)
+    data.df <- data.frame(x,y)
+    x <- rnorm(N,0,1)
+    y <- b0+b1*x+rnorm(N,0,sigma)
+    test.df <- data.frame(x,y)
+    mod.lm <- lm(y~x)
+    mod.lo <- loess(y~x,span=0.8)
+    pred.lm <- predict(mod.lm,newdata=test.df)
+    pred.lo <- predict(mod.lo,newdata=test.df)
+    mse.lm <- with(test.df,mean((y-pred.lm)^2))
+    mse.lo <- with(test.df,mean((y-pred.lo)^2))
+    mse.vals[m,] <- c(mse.lm,mse.lo)
+}
+
+
+```
+
+
+The means of the mse values
+```{r}
+apply(mse.vals,2,mean)
+
+```
+
+
+fix up the data so it can be plotted.
+```{r}
+colnames(mse.vals) <- c("LM","LOESS")
+df <- data.frame(mse.vals)%>%
+    gather(type,val,1:2)
+
+
+```
+
+
+Now plot
+```{r}
+ggplot(df)+
+    geom_density(aes(val,..density..,fill=type),alpha=0.5)
+
+
+
+```
+## Using Bootstrapping to optimize control parametes
+
+Let's go back to the MSE calculation with Loess. We had a fixed values of the span and then computed an estimated MSE with variability. 
+
+```{r}
+c(mean(mses.boot.lo),sd(mses.boot.lo),var(mses.boot.lo))
+```
+Question: How much does these estimates depend on the choice of Span?
+
+## Assignment 1
+Redo the bootstrapped MSE calculation with values of span in the interval (.1,3). Can you settle on a value of the span that minimizes the MSE?
+
+Plan: It might help to write a helper function that  will compute the estimated (mean) MSE and variability (variance or sd) as a function of the span. From these, create a plot that shows MSE as a function of span, along with some indication of the variability of the estimate. For example, you might want to plot mse, mse+2*sd, mse-2*sd all as a function of span.
+
+
+## Assignment 2 - Theft Incidents
+Return to the Police Incident Data for 2019 from the first  day of class.  In practice, we can't create  different train+test combos. But we can bootstrap to compute "new" samples fo the data. 
+
+
+Consider "clean" data in the file "TheftData2019.csv"
+
+The key here is to bootstap the original data (all incidents, all times) not the "binned" data. 
+```{r}
+dataFull.df <- read.csv("TheftData2019.csv")
+##Number of observations
+N <- nrow(dataFull.df)
+
+## A function to put the data into numBins discrete time bins
+binData <- function(data.df,numBins=240){
+  data.df %>% 
+    mutate(time=cut_interval(time,numBins,
+                             labels=as.numeric((1:numBins)*24/numBins))) %>% 
+    mutate(time=as.numeric(as.character(time))) %>% 
+    group_by(time) %>% 
+    summarize(tot=n())
+}
+
+## bin the data  
+binnedData.df <- binData(dataFull.df,240)
+
+##Boot  strap on original data
+bootSamp <- sample(1:N,N,rep=T)
+boot.df <- data.frame(time=dataFull.df[bootSamp,])
+## bin the bootstrapped data
+binnedBoot.df <- binData(boot.df,240)
+
+##  
+## A quick glance at original data
+## and bootstrapped data (after binning)
+bind_cols(binnedData.df,binnedBoot.df) %>% 
+  rename(bootTot=tot1) %>% 
+  ggplot()+
+  geom_point(aes(time,tot),size=.5,color="red")+
+  geom_point(aes(time,bootTot),size=.5,color="blue")+
+  scale_y_continuous(limits=c(0,200))+
+  labs(title="Original=Red, Bootstrapped=Blue")
+
+```
+
+
+
+Use MSE as the loss function and  determine the best predictive model between linear models (up to cubic fit) and loess (any reasonable span). You will do the actual predictions on the binned data. Usethe bootstrapped data to get estimates of the MSE 
+
+
+For loess, produce a graph of estimated MSE as a function of the span. As above, include indication of variability.
+
+
+# Assignment 3 -  Kidney Data: Linear vs Loess?
+Consider the the data set "kidneyCASI.csv"
+
+ *  *age* is age of volunteer
+ *  *score* is composite kidney health score.
+
+```{r}
+
+fileName<-"kidneyCASI.csv"
+```
+
+Read and plot...
+```{r}
+kidney.df <- read.csv(file.path(workDir,dataDir,fileName))
+ggplot(kidney.df)+
+    geom_point(aes(age,score))
+```
+
+Note: Kidneys start to deteriorate as people get older (ARGH)!
+
+
+Assess the utility of both lm and loess as a predictive tool
+prediction for the score. Use MSE as the loss function. 
+
+For  loess, estimate an optimal value for the span.
+
+For  lm, allow higher order terms (up to age^3)
+
+In particular, summarize the difference in predictions
+and the standard error of prediction for each algorithms. Use bootstrapping for both algorithms. Are there any marked differences between these two algorithms? Is there
+any reason to favor one method over the other based on MSE?

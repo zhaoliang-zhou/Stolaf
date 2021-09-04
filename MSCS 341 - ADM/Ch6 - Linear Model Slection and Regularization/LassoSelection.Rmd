@@ -1,0 +1,192 @@
+---
+title: "Lasso Subset Selection"
+author: "Matt Richey"
+date: "3/29/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(glmnet)
+```
+
+# Introduction
+Lasso can also be used as a selection algorithm. This is because Lasso "zeros out" predictors as the shrinkage factor (lambda) increases. Once a predictor's coefficient hits zero, it stays at zero. Hence, that predictor has been eliminated from from the prediction set.
+
+Before proceeding, it's important to note that any penalized regression algorithm depends on having scaled predictors. This is due to how each of these algorithms needs to choose between predictors to shrink at each step of the algorithm. They has a  "greedy" approach in that they will always go for the coefficient that it can shrink the most. Hence if the predictors are on different scales, the selection is tilted towards predictors whose coefficient are largest.  As it turns out, glmnet does  scaling internally and returns to the original scale when done. Hence we don't have to worry ahead of time. However, if want to compare the magnitudes of coefficients, we should scale the data ahead of time. 
+
+
+# Load the Data
+The data files are related to the presidential election of 2012 (Rommney vs Obama): 
+* countyElection.csv: For each US county, demographic data along with voter turnout rates 
+* county_facts_dictionary.csv: A data dictionary containing  descriptions of each of the demographic  fields in  countyElection.csv.
+
+
+Establish data locations and read the data.
+```{r}
+dataDir <- "/Users/richeym/Dropbox/COURSES/ADM/DATA/ElectionProjection"
+dataFile <- "CountyElection.csv"
+dictFile <- "County_Facts_Dictionary.csv"
+
+countyElection.df <- read.csv(file.path(dataDir,dataFile))
+names(countyElection.df)
+dictionary.df <-
+    read.csv(file.path(dataDir,dictFile))
+##
+countyIDInfo.df <- countyElection.df %>% 
+  select(fips,State)
+
+countyElection.df <- countyElection.df %>% 
+  select(-fips,-State)
+
+dictionary.df <- dictionary.df %>% 
+  filter(! column_name %in% c("fips","State"))
+
+dim(countyElection.df)
+```
+
+
+
+#  Lasso Implementation
+Using Lasso means  we need to separate the predictors from the response and then convert from data frames to data matrices.
+
+```{r data matrices}
+numPreds <- ncol(countyElection.df)-1
+data.x <- data.matrix(countyElection.df[,-(numPreds+1)])
+data.y <- data.matrix(countyElection.df[,numPreds+1])
+```
+
+We also need a grid of lambda values. It is important to remember that there is no natural scale for the lambda values. I settled on this grid after some experimentation.
+```{r lambda}
+lambda.grid <- 10^seq(-5,-2,length=100)
+```
+
+
+### Cross-validation and lambda selection
+Now we can run cross-validated lasso and look at the results. 
+```{r lasso cv}
+mod.lasso.cv <- cv.glmnet(data.x,
+                          data.y,
+                          alpha=1,
+                          lambda=lambda.grid)
+
+plot(mod.lasso.cv)
+```
+From the plot, we see both the lambda with the minimal MSE and the "One SE Rule" lambd.
+
+Use the "One  SE Rule" lambda  value since it will use fewer predictors.
+```{r lambda 1se}
+##lambda.opt <- mod.lasso.cv$lambda.min
+(lambda.opt <- mod.lasso.cv$lambda.1se)
+```
+###  Lasso Model on  lambda grid
+First compute the lasso model over the lambda grid. A  plot shows that  large number of the 47 predictors go to zero pretty quickly (recall that the lambda are in decreasing order in this plot).
+```{r lasso model}
+mod.lasso <- glmnet(data.x,
+                    data.y,
+                    alpha=1,
+                    lambda=lambda.grid)
+plot(mod.lasso)
+```
+
+
+We can extract the coefficients as a data matrix. This will be matrix with one row for  each coefficient (including the intercept) and one column for each lanmbda value (in descending  order of lambda!).
+
+We are not concerned   with the intercept, so we'll drop it from the coefficient list.
+```{r}
+coefs.all <- data.matrix(coef(mod.lasso))
+coefs.all <- coefs.all[-1,] ##drop off the intercept
+```
+
+
+How many non-zero coefficents are there in each column (i.e., for each lambda value)?
+
+Here's one way to get it. 
+```{r}
+(nonZeros <- mod.lasso.cv$nzero)
+```
+A graphic make it easier to see what is going on.  Remember to reverse the lambda values. Also,  use log scale for lambda.
+```{r}
+data.frame(lambda=lambda.grid,numZeros=rev(nonZeros)) %>% 
+  ggplot()+
+  geom_point(aes(lambda,numZeros))+
+  geom_vline(aes(xintercept=lambda.opt),color="red")+
+  scale_x_log10()
+```
+
+
+This plot shows that as lambda increases, more and more predictors "drop out." For sufficiently large lambda, there are no predictors and the model reduces to predicting the mean of the response. At the optimal lambda value, there are 15 predictors. 
+
+Note: There is an oddity that on a few occasions, the number of non-zero coefficients increases by one. This plot should be monotonically decreasing as a function of the lambda. I'm not sure what is going on here.
+
+### Optimal Lasso Model
+Now let's look at which of these variables are nonzero at the optimal lambda value.
+```{r optimal lasso}
+mod.lasso.opt <- glmnet(data.x,
+                    data.y,
+                    alpha=1,
+                    lambda=lambda.opt)
+```
+
+So how well does the optimal model perform? As before, the best guage is to cross-validate MSE. As it turns out, mod.lasso.cv has already done that for us. We just need to dig the result out of the data structure for mod.lasso.opt. 
+
+Most of the relevant information is contained in the following names.
+```{r}
+names(mod.lasso.cv)
+```
+
+For example, "cvm" contains all the cross-validated MSE values (the ones appearing in plot(mod.lasso.cv). Similarly, "lambda" contains all the lambda grid values. 
+Note: glmnet keeps everything in reverse order of lambda (largest first)/
+E.g....
+```{r}
+head(mod.lasso.cv$lambda)
+```
+
+Here's an easy way to get to the cross-validated estimate of the MSE at the optimal value of lambda. First get the location of lambda.opt. Then at that location we will find our desired cross-validated estimate of the MSE.
+```{r}
+(id <- with(mod.lasso.cv,which(lambda == lambda.opt)))
+(mse.lasso <- mod.lasso.cv$cvm[id])
+```
+
+You can also use the cross-validated model to make predictions.
+```{r}
+preds.cv1 <- predict(mod.lasso.cv,newx=data.x,s=lambda.opt)
+```
+versus..
+
+```{r}
+coefs.cv <- coefficients(mod.lasso.cv,s=lambda.opt)
+preds.cv2 <- cbind(1,data.x) %*% coefs.cv
+head(cbind(preds.cv1,preds.cv2),10)
+```
+These should be identical! 
+
+
+We can also grab the coefficients from the optimal model and compare them to the cross-validated coefficients.
+```{r coefficients}
+coefs.opt <- data.matrix(coefficients(mod.lasso.opt))
+cbind(coefs.cv,coefs.opt)
+```
+These  are not quite identical since the cross-validated coefficients are, not shockenly, cross-validated. Generally speaking, they should be close. In paricular, they have the same nonzero coefficient sets.
+
+Which are the descriptions of the lasso predictors?
+```{r}
+(preds.lasso <- which(coefs.cv != 0))
+dictionary.df[preds.lasso,2]
+```
+
+
+
+# Question
+How does lasso compare with the Forward (or Backward) Selection Algorithm on this  data set?  How do the predictor sets compare? Does one method perform better than the others?
+
+# Summary
+So why pick one over the other? One advantage of the Lasso  is that it is very easy to use and is very robust with respect to wide (large p, small n) data sets. The built-in cross-validation makes it easy to have  confidence that you are  accurately estimating its performance. 
+
+Forward (or backward) selection work well in most traditional settings and often result in models with fewer predictors than lasso. Hence, they can be easier to interpret.

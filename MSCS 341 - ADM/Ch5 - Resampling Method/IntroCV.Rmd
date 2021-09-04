@@ -1,0 +1,385 @@
+---
+title: "Introduction to Cross Validation"
+author: "Matt Richey"
+date: "03/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+
+###Load tidyverse, of course.
+```{r}
+library(tidyverse)
+library(class) ## for  KNN
+```
+
+
+#Cross Validation Introduction
+The idea behind Cross Validation is to reuse the  data in order to build train/test   combos. Usually the goal is to estimate something like MSE or Error Rate or to "tune" a parameter. 
+
+## Synthetic  Example
+Build some  simple data use an underlying linear model
+```{r}
+buildData <- function(N,sig,b0,b1){
+  x <- rnorm(N,0,1) 
+  y <- b0+b1*x+rnorm(N,0,sig)
+  data.frame(x,y)
+}
+
+```
+
+
+
+Here it is...
+
+```{r}
+N <- 50
+sig <- 5/sqrt(5)
+b0  <- 1
+b1  <- 2
+train.df <- buildData(N,sig,b0, b1)
+
+```
+
+
+
+what are we looking at?
+
+```{r}
+train.df %>%
+  ggplot()+
+  geom_point(aes(x,y))
+
+
+```
+
+
+
+## A linear model and preditions
+
+Build the model on the training data and compute the training MSW
+```{r}
+mod1  <- lm( y~x, data=train.df)
+train.df$pred1 <- predict(mod1)  
+(mse.train<-with(train.df,mean((y-pred1)^2)))
+```
+
+
+
+How about some test data?
+Test prediction and conpute the MSE
+```{r}
+test.df <-  buildData(N,sig,b0,b1)
+test.df$pred1 <- predict(mod1,newdata=test.df)  
+(mse.test<-with(test.df,mean((y-pred1)^2)))
+```
+
+In this case, we have pretty simple data. Hence, the train/test mses are pretty similar.
+
+
+A quick formula build for higher degree (more flexible) models.
+```{r}
+buildFormula <- function(degMax){
+ form <- "y ~ x"
+ if(degMax==1)
+   return(form)
+  for(deg in 2:degMax){
+    form <- paste(form,sprintf("+I(x^%s)",deg),sep=" + ")
+  }
+ form
+}
+buildFormula(3)
+```
+
+
+```{r}
+deg <- 7
+(form <- buildFormula(deg))
+```
+
+As  before, the training and testing results.
+```{r}
+mod1  <- lm(formula(form),data=train.df)
+train.df$pred1 <- predict(mod1,newdata=train.df)  
+(mse.train <- with(train.df,mean((y-pred1)^2)))
+
+## 
+test.df$pred1 <- predict(mod1,newdata=test.df)  
+(mse.test <- with(test.df,mean((y-pred1)^2)))
+
+```
+
+
+#k-fold Cross Validation
+K-Fold cross validation  breaks the data into, you guessed it, k folds.
+
+
+Here's how it goes.
+```{r}
+N <- 500
+sig <- 5/sqrt(5)
+b0  <- 1
+b1  <- 2
+data.df <- buildData(N,sig,b0, b1)
+```
+
+
+Let's do a 5 folds CV.
+
+The process is straightforward
+```{r}
+## Size of data set
+N <- nrow(data.df)
+## Number of folds
+numFolds <- 5
+## the folds themselves.
+folds <- sample(1:numFolds, N, rep=T)
+```
+The folds are just random samples from 1, 2, 3, 4, 5. There is a fold selected for each of the N observations  in the  data set.
+```{r}
+folds
+```
+
+
+Here's how to build the test/train combo
+
+To start,  pull out the first fold
+```{r}
+
+##Everything but where the fold is 1
+train.df  <- data.df[folds != 1,]
+## exactly  where the fold is 1
+test.df   <- data.df[folds == 1,]
+```
+
+Notice that 4/5 of the data go into the training set, 1/5 goes into the test set. This is so we can build on a reasonably large data set.
+
+
+Now the build model and predict as usual. Compute the test MSE.
+
+```{r}
+mod.cv  <- lm(y ~ x, data=train.df)
+test.df$pred1 <- predict(mod1,newdata=test.df)  
+(mse.cv <- with(test.df,mean((y-pred1)^2)))
+```
+
+
+Repeat for all the folds. Keep track of the results 
+and take the mean to estimate the overall MSE
+
+```{r}
+
+kfold.mseVals <-numeric(numFolds)
+
+for(fold in 1:numFolds){
+  train.df  <- data.df[folds != fold,]
+  test.df   <- data.df[folds == fold,]
+  mod.cv  <- lm(y~x,data=train.df)
+  test.df$pred1 <- predict(mod.cv,newdata=test.df)  
+ kfold.mseVals[fold] <- with(test.df,mean((y-pred1)^2))
+}
+## Compute the mean and variance
+(kfold.mse <- mean(kfold.mseVals))
+(kfold.var <- var(kfold.mseVals))
+```
+
+The mean of the all (numFolds) MSE estimates is an estimate of the overall MSE.
+
+
+#Leave one out CV (LOOCV)
+Leave one  out CV (LOOCV) is an alternative (that is not often used) to k-Fold CV.
+
+The idea is simple, use N-1 values for training, 1 value for testing. Repeat N times, leaving out a single observation each time. 
+
+It goes something like this....
+```{r}
+loocv.mseVals <- numeric(N)
+for(n in 1:N){
+  train.df  <- data.df[-n,]
+  test.df   <- data.df[n,]
+  mod.loocv  <- lm(y~x,data=train.df)
+  test.df$pred1 <- predict(mod.loocv,newdata=test.df)  
+  loocv.mseVals[n] <- with(test.df,mean((y-pred1)^2))
+}
+(loocv.mse <- mean(loocv.mseVals))
+(loocv.var <- var(loocv.mseVals))
+```
+You might notice that the variance is quite large.  This is because extreme observations will contribute very large prediction errors.
+
+```{r}
+data.df %>% 
+  ggplot()+
+  geom_point(aes(x,y),color="blue")+
+  geom_point(aes(x,loocv.mseVals),color="red")+
+  labs(title="LOOCV Variances")
+             
+```
+
+
+
+#Bootstrap
+Last, but not least, we can get a similar  results via the Bootstrap
+
+```{r}
+numBoots <-100
+boot.mseVals <-numeric(numBoots)
+for(b in 1:numBoots){
+  boots <- sample(1:N,N,rep=T)
+  train.df  <- data.df[boots,]
+  test.df   <- data.df[-boots,]
+  print(nrow(test.df))
+  mod.boot  <- lm(y~x,data=train.df)
+  test.df$pred1 <- predict(mod.boot,newdata=test.df)  
+  boot.mseVals[b] <- with(test.df,mean((y-pred1)^2))
+}
+(boot.mse <- mean(boot.mseVals))
+(boot.var <- var(boot.mseVals))
+
+```
+
+All of these produce similar estimates of MSE
+```{r}
+c(kfold.mse, loocv.mse, boot.mse)
+```
+
+The variances are quite different
+```{r}
+c(kfold.var, loocv.var, boot.var)
+```
+
+The main use of MSE  is not so much to  estimate  MSE, but to compare MSE as various modeling (control) parameters  change. 
+
+
+## Auto Data
+Let's use the ISLR Auto data. As described in the test, we want to model mpg as a function of horsepower.
+
+Get the data...
+```{r}
+## 
+library(ISLR)
+data(Auto)
+```
+
+You might want to  take a quick peek at the data. We only want the mpg and horsepower fields, so let's clean it up a bit.
+head(Auto)
+```{r}
+auto.df <- Auto %>% 
+  dplyr::select(mpg,horsepower)
+```
+
+What are we looking at here?
+```{r}
+auto.df %>% 
+  ggplot() +
+  geom_point(aes(horsepower,mpg))
+```
+
+This will be handy...modify the buildFormula function to build a formula for the Auto data.
+```{r}
+buildFormAuto <- function(degMax){
+ form <- "mpg ~ horsepower"
+ if(degMax==1)
+   return(form)
+  for(deg in 2:degMax){
+    form <- paste(form,sprintf("+I(horsepower^%s)",deg),sep=" + ")
+  }
+ form
+}
+buildFormAuto(3)
+```
+
+## Assignment 1: Figure 5.4
+
+Build reasonable replications of the two graphs in Figure 5.4, page 180  of ISLR. For the right-hand graph, start by just producing one 10-Fold plot. If that works, think about how  to layer nine of them on top of each other!
+
+What does the result tell you about the best degree to use  in a linear model (ie. in lm) in orger to predict  mpg as a function  of horsepower?
+
+Hint: After you get an idea of how  to do this, you might want to eventually to build a simple function  that takes a value of the  degree and returns the CV  estimate of the  error (for both LOOCV and k-Fold).
+
+# Assignment 2: Wine Quality Prediction
+Go to: https://archive.ics.uci.edu/ml/datasets/Wine+Quality
+Use the white wine data set. Build a model to predict quality as
+a function of the predictors. Compare linear regression with KNN 
+(using knn.reg)
+For linear regression, use CV and/or bootstrap to determine the best (or at least a good)
+set of predictors.
+For KNN, determine the best choice of k.
+
+Note: before starting the modeling, scale the predictors data before  applying knn.
+
+```{r}
+
+##train.x <- scale(train.x)
+## test.x <- scale(test.x)
+```
+
+
+
+## Cross-validation for Classification
+The same ideas apply for classification. Here, the loss function is the error rate so generally you'll be trying to estimate the the error rate (or at  least the  values of  parameters which minimize error  rate.
+
+As an example, let's play  around with the Auto  data. Use year as the response variable.
+
+```{r}
+library(ISLR)
+names(Auto)
+with(Auto,table(year))
+```
+Question: Can we predict which cars were made before 1978?
+
+A quick glance at the data....
+```{r}
+Auto <- Auto %>% 
+  mutate(pre78 = year < 78) 
+
+Auto%>% 
+  ggplot()+
+  geom_point(aes(mpg,acceleration,color=factor(pre78)))
+
+```
+
+Use Cross-validition with KNN to do the prediction. We need to select the best value of k. Use 10-fold cross validation.
+
+```{r}
+numFolds <- 10
+n <- nrow(Auto)
+folds <- sample(1:numFolds,n,rep=T)
+```
+
+Get started with fixed value of k.
+```{r}
+kval <- 2
+errs <- numeric(numFolds)
+for(fold in 1:numFolds){
+ train.df <- Auto[folds != fold,] 
+ test.df <- Auto[folds == fold,]  
+ train.x <- data.matrix(train.df[c("mpg","acceleration")])
+ resp.x<- data.matrix(train.df[c("pre78")])
+ test.x <- data.matrix(test.df[c("mpg","acceleration")])
+ mod.knn <- knn(train.x,test.x,resp.x,k=kval)
+ errs[fold] <- with(test.df,mean(pre78 != (mod.knn==1)))
+}
+mean(errs)
+
+```
+
+## Assignment 3: Classification 1
+For the predictive question above using KNN, what is the best value of k? Is it k = 1? Use 10-fold cross-validation. To estimate the best possible 
+Caution: For some reason, R is knn  is unhappy with k=2.
+
+## Assignment 4:  Classification 2
+Consider the data set in "ClassificationData2D.csv", use 10-fold cross-validation to determine the best possible KNN predictive model.
+```{r}
+data2D.df <- read_csv( "ClassificationData2D.csv")
+data2D.df %>% 
+  ggplot()+
+  geom_point(aes(x1,x2,color=factor(class)))+
+  scale_color_manual(values=c("red","blue"))+
+  labs(title="2D Classification Data")
+
+               
+```
+
+How does this  result  compare with Logistic regression, LDA, and QDA.  In each case, just use the full predictor set. Use 10-fold cross-validation to estimate the error rate. 

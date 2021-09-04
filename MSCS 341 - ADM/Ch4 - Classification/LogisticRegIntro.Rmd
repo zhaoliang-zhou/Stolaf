@@ -1,0 +1,1078 @@
+---
+title: "Introduction to Logistical Regression with Scoring"
+author: "Matt Richey"
+date: "10/2/16"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+
+
+```{r,message=FALSE}
+library(tidyverse)
+library(ISLR)
+```
+
+Use the ISLR to load the  **default** data set. This  dataset contains data on loan defaults.
+
+Take a look at the structure and also  View it. 
+
+
+```{r}
+names(Default)
+str(Default)
+```
+There are:  
+  * 10000 records
+ *3 predictor variables: student (factor), balance and income (num)
+ *1 response: default (factor "Yes/No")
+
+
+This is useful...if there are too many variables, it can get
+confusing
+
+Here's  a  nifty way to view  how the variable  relate to each other.
+```{r,message=F}
+library(GGally)
+ggpairs(Default)
+```
+
+
+Create a numerical response variable. This can be useful later
+```{r}
+Default <- mutate(Default,
+                  default.val=ifelse(default=="Yes",1,0))
+```
+
+A plot of balance and income, shape indicates student or not.
+
+```{r}
+Default %>% 
+  ggplot()+
+  geom_point(aes(balance,income,
+                 color=default,shape=student),
+             size=4,alpha=0.99)+
+  scale_color_brewer(palette="Set1")+
+  labs(title="Default by balance and income")
+
+```
+
+Break out students using a facet_wrap
+```{r}
+Default %>% 
+  mutate(student=ifelse(student=="Yes",
+                        "Student","NonStudent")) %>% 
+  ggplot()+
+    geom_point(aes(balance,income, 
+                   color=default),
+               size=1,alpha=0.5)+
+    facet_wrap(~student,ncol=2)+
+    scale_color_brewer(palette="Set1")+
+    labs(title="Default by balance and income")
+
+```
+
+Note: There is no reason to predict on individuals with very low balances
+
+```{r}
+Default %>% 
+  group_by(default) %>% 
+  summarize(min(balance))
+```
+
+Let's limit the data set to only cases where the balances>=$500
+
+```{r}
+Default <- Default %>% 
+  filter(balance >= 500)
+```
+
+How does this look?
+```{r}
+Default %>% 
+  mutate(student=ifelse(student=="Yes",
+                        "Student","NonStudent")) %>% 
+  ggplot()+
+    geom_point(aes(balance,income, 
+                   color=default),
+               size=1,alpha=0.5)+
+    facet_wrap(~student,ncol=2)+
+    scale_color_brewer(palette="Set1")+
+    labs(title="Default by balance and income")
+
+```
+
+It clearly looks like balance is worth using as a starter predictor.
+
+```{r}
+Default %>% 
+  ggplot()+
+      geom_point(aes(balance,default.val),
+                 color="blue")+
+      labs(title="Default by balance")
+```
+
+It helps to jitter a little.
+```{r}
+ggplot(Default)+
+    geom_jitter(aes(balance,default.val),
+                height=.05,size=.1,color="blue")+
+    labs(title="Default by balance")
+```
+Looks sorta promising. 
+
+
+What is the  impact of the student status?
+
+```{r}
+Default %>% 
+  ggplot()+
+    geom_jitter(aes(income,default.val,color=student),
+                height=.1,size=.1)+
+  scale_color_manual(values=c("red","blue"))+
+  facet_wrap(~student,nrow=2)+
+    labs(title="Default by income",
+         subtitle="Student vs. Non-student")    
+
+
+```
+Hmmm.....at a glance, after separating  Student/Non-student, there is less of an influence of  balance  on detault probability.
+
+# Build a linear model using balance
+As a first step, we will just build a linear function to make the predictions about  whether or not a person defaults on a loan. 
+
+Called "Linear Classifier"
+
+There are other (better) ways to proceed but Linear Classifiers can be useful.
+
+
+## A simple linear model
+
+We can use ordinary linear regression. In this case, interpret the default (Yes/No) as a numerical value, default.val, (1/0).
+```{r}
+mod.lm <- lm(default.val ~ balance, data = Default)
+summary(mod.lm)
+
+```
+
+Assign the predicted outcomes
+```{r}
+Default$val.lm <- predict(mod.lm, newdata = Default)
+```
+
+The picture....
+
+```{r}
+Default %>% 
+  ggplot()+
+  geom_jitter(aes(balance,default.val),
+              height=.1,
+              size=.1,color="blue")+
+  geom_point(aes(balance,val.lm),
+             size=.1,
+             color="red")+
+  scale_y_continuous(breaks=seq(0,1,by=.1))+
+  labs(title="Linear model to predict default")
+
+```
+
+We can use this to build a classifier.
+
+Use a rule: If pred.lm < threshold, classify as no, otherwise yes.
+
+Question: What is the best threshold?
+Answer: Try  a bunch of values.
+
+Before going any further...train/test time.
+
+Build a train/test combo.  We have a fairly large data set  so this is reasonable.
+```{r}
+(N <- nrow(Default))
+sizeTrain <- N/2
+indicesTrain <- sample(1:N,sizeTrain,rep=F)
+train.df <- Default[indicesTrain,]
+test.df <-  Default[-indicesTrain,]
+
+nrow(train.df)
+nrow(test.df)
+```
+
+Now build on the training data. Predict on the testing data.
+```{r}
+mod.lm <- lm(default.val~balance,data=train.df)
+test.df$val.lm <- predict(mod.lm,newdata=test.df)
+```
+
+
+To start, pick a rdiculously small prediction threshhold and see how it works.
+```{r}
+thresh.pred <- 0.1
+test.df <- test.df %>% 
+  mutate(pred.lm= ifelse(val.lm < thresh.pred,0,1))
+```
+
+Confusion matrix and error rate
+```{r}
+with(test.df,table(default.val, pred.lm))
+```
+Does this make sense...with the  threshold so so small, we get a lot of positives.
+
+And the prediction error
+```{r}
+(err.pred<-with(test.df,mean(default.val!=pred.lm)))
+```
+
+Interesting.
+
+Put this  all together in a function. 
+```{r}
+calcErr <- function(thresh.pred,data.df) {
+ data.df %>% 
+  mutate(pred.lm = ifelse(val.lm < thresh.pred,
+                               0,1)) %>% 
+  with(mean(default.val != pred.lm))
+}
+```
+
+Check we get the same as before
+```{r}
+calcErr(thresh.pred,test.df)
+```
+Yes..
+
+How about a larger threshhold?
+```{r}
+calcErr(0.9,test.df)
+```
+Impressive.
+
+But.....
+
+### Null rate
+What if we simply predict that no one defaults!
+
+```{r}
+(err.null <- with(test.df,mean(default.val)))
+```
+This is called the **Null Rate.**
+
+A large threshold just says that essentially no one is defaulting!
+
+## Identify optimal threshold.
+Systematically search for the optimal value....can we beat the Null Rate?
+
+Compute the error rate on thresholds between 0 and 1.
+
+
+```{r}
+sizeThresh <- 100
+threshVals<-seq(0,1,length = sizeThresh)
+```
+
+Standard for-loop to compute the  error at each threshold  value.
+```{r}
+errs.preds <- array(numeric(0),sizeThresh)
+for(k in 1:sizeThresh){
+  val <- threshVals[k]
+  errs.preds[k] <- calcErr(val,test.df) 
+}
+
+```
+
+
+### Aside: Mapping with map_dbl
+A better (cleaner) way to do this is to use a map function, in this case  **map_dbl** (in purrr package, part of tidyverse). 
+
+
+map_dbl "maps" a function onto a list of values. 
+
+    map_dbl(VALUES, FUNCTION)
+The FUNCTION is a function of one variable that is applied to each value in the list VALUES.
+
+
+Simple example: suppose you want a list of first 20 squares.
+```{r}
+f <- function(n) {
+  n^2
+}
+```
+
+
+Create a list of values and apply f to the  list.
+```{r}
+vals <- 1:20
+map_dbl(vals,f)
+```
+
+
+## Back to prediction errors
+
+Lets do the same with the calculation of the errors
+
+```{r}
+##reduce to one variable
+calcErr1 <-function(val){
+  calcErr(val, test.df)
+  }
+err.preds <- map_dbl(threshVals, calcErr1)
+```
+
+However you do it, look at a plot
+```{r}
+data.frame(thresh=threshVals,err=err.preds) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5)+
+  geom_hline(aes(yintercept=err.null),color="red") +
+  labs(title="Linear Classifier Error rate as function of Threshold",
+       subtitle="Null Rate in red")
+```
+There appears to be a distinct min that beats the Null Rate (by a wee bit)
+
+Track down the optimal threshold and minimal error...
+```{r}
+(err.linear <- min(err.preds))
+id.min<-which.min(err.preds)
+(thresh.best<-threshVals[id.min])
+```
+
+We do beat the null rate!
+```{r}
+c(err.linear,err.null)
+```
+
+
+
+Of course, we might want to repeat the train/test process
+```{r}
+calcErrRep <- function(thresh.pred,numReps) {
+  errs <- array(numeric(0),numReps)
+  ## build numReps train/test combos
+  for(k in 1:numReps){
+    ## train/test combo
+    train <-sample(1:N,N/2,rep=F)
+    train.df<-Default[train,]
+    test.df<-Default[-train,]
+    ##model
+    mod.lm <- lm(default.val~balance,data=train.df)
+    test.df$val.lm <- predict(mod.lm,newdata=test.df)
+    errs[k] <- test.df %>% 
+      mutate(pred.lm = ifelse(val.lm < thresh.pred,
+                              0,1)) %>% 
+      with(mean(default.val != pred.lm))
+  }
+  mean(errs) ## could return sd as  well (or entire array of values)
+}
+```
+
+
+
+Test it  out...
+```{r}
+numReps <- 25
+threshVal <- .25
+calcErrRep(threshVal,numReps)
+```
+Seems to work...
+
+
+Rerun  analysis above with more robust error calculation.
+```{r}
+sizeThresh <- 100
+threshVals <- seq(0, 1, length = sizeThresh)
+numReps <- 25
+err.preds <- map_dbl(threshVals, function(val) calcErrRep(val,numReps))
+```
+
+And  the plot.
+```{r}
+data.frame(thresh=threshVals,err=err.preds) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5)+
+  geom_hline(aes(yintercept=err.null),color="red") +
+  labs(title="Linear Classifier Error rate as function of Threshold",
+       subtitle="Null Rate in red")
+```
+
+Looks like  we'll get similar result. 
+
+# Approach 2: Logistic Regression Model
+
+The probability of going from 0 to 1 is clearly not linear in the value of balance. 
+
+Here's a rough look at the trend, based on binning values.
+```{r}
+numBreaks <- 25
+Default <- Default %>% 
+  mutate(cut=cut_interval(balance,numBreaks,labels=1:numBreaks))
+with(Default,table(cut))
+##with(Default,max(balance))/25
+Default %>% 
+  group_by(cut) %>% 
+  summarize(p=mean(default.val)) %>% 
+  ggplot()+
+  geom_point(aes(cut,p),color="blue",size=2)+
+   geom_hline(yintercept = 1,color="black")+
+  geom_hline(yintercept = 0,color="black")+
+  geom_segment(aes(x=cut,xend=cut,y=0,yend=p),color="blue")+
+  ##scale_x_continuous(breaks=seq(0,3000,length.out = 6))+
+  ##scale_x_discrete(breaks=seq(0,numBreaks,length = 10))+
+  labs(title="Prop of Default by Balance %")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Logistic Regression attempts to model this trend more realistically.
+
+Here is the standard syntax for logistic regression.
+
+Logistic Regression is a special case of a family of models
+called "Generalized Linear Models" (GLMs).
+
+```{r}
+mod.log <- glm(default~balance,
+               family=binomial,  ##
+               data=Default)
+summary(mod.log)
+```
+
+Logistic regression can return either predicted robabilities or the  "log odds"
+
+We generaly want to pull off the predicted probabilities.
+
+Note the type="response".....The default is to return the log odds
+
+```{r}
+probs <- predict(mod.log,data=Default,type="response")
+head(probs)
+```
+
+## **ALTERNATIVE**...
+predict.glm has different types of return values
+a different way to think of this....
+The default is to return the log odds values
+
+Log odds ($y$ of an event with probability $p$ is defined as
+$$y =\log \left(\frac{p}{1-p}\right)$$
+
+Hence, if $y$ represents the log odds,
+
+$$p=\frac{e^y}{1+e^y}=\frac{1}{1+e^{-y}}$$
+
+
+Just a check....
+
+Grab the log odds. 
+```{r}
+log.odds<- predict(mod.log,data=Default)
+```
+Convert log odds to probability and check..
+```{r}
+probs0<- exp(log.odds)/(1+exp(log.odds))
+head(cbind(probs,probs0))
+```
+Phew...Same as above.
+
+## Back to the probabilities 
+
+Assign predicted **probabilities**
+```{r}
+Default <- mutate(Default,prob.log = probs)
+```
+
+Figure 4.2 again..this time with logistic regression predicting the probabilty of default.
+```{r}
+Default %>% 
+  ggplot()+
+  geom_jitter(aes(balance,default.val),
+              height=.1,size=.1,color="blue")+
+  geom_point(aes(balance,prob.log),color="red")+
+  geom_hline(yintercept = 1,color="black")+
+  geom_hline(yintercept = 0,color="black")+
+  labs(title="Default by balance",
+       x="balance",
+       y="probability of default") 
+
+```
+The classic logistic regresson plot.
+
+##How well did we do: Error Rates and Null Error Rates
+Let's do some predicting.....
+set up a probability threshold for classifying as a "Yes."
+
+Again, use train+test
+```{r}
+indicesTrain <- sample(1:N,sizeTrain,rep=F)
+train.df <- Default[indicesTrain,]
+test.df <-  Default[-indicesTrain,]
+```
+
+Build the logistic regression model on the training data.
+```{r}
+mod.log <- glm(default ~ balance,
+               family = binomial,  ##
+               data = train.df)
+```
+
+Predict on  the test data and assign the probabiilities
+```{r}
+test.df$prob.log <- predict(mod.log,
+                            newdata = test.df,
+                            type = "response")
+ 
+```
+
+As a start, probability=0.5 is a natural choice for a threshold.
+```{r}
+thresh.pred <- 0.5
+test.df <- test.df %>% 
+  mutate(pred.log = ifelse(prob.log < thresh.pred ,0,1))
+```
+
+The Confusion matrix..cross tabulate actual vs predicted
+```{r}
+with(test.df,table(default.val, pred.log))
+```
+
+
+We see about 
+ * About 3500 True Negatives
+ * About 50 True Positives
+ * About 25 False Positives
+ * About 130 False Negatives
+
+
+And the error rate
+```{r}
+(err.log <- with(test.df, mean(default.val != pred.log)))
+```
+An error rate of `r round(err.log,2)`. Not bad
+
+Better than the null rate.
+Compared to the null rate, we did do better, by 1% in absolute terms
+```{r}
+c(err.log ,err.linear, err.null)
+```
+
+Still better than  the Null  Rate.
+
+Of course, to be thorough, you probably want to run a number of train+test combos and use mthe mean error rate.
+
+Now, let's group by students and see how we did in each class.
+It looks as if we did  a slightly  better  job with students using a threshold of 0.5. 
+
+```{r}
+test.df %>%
+    group_by(student)%>%
+    summarize(err=mean(!default.val == pred.log),
+              err.null=mean(default=="Yes"),
+              err.ratio=err/err.null)
+
+```
+Intersting...
+
+## Best threshold
+
+Recall calcErr
+```{r}
+calcErr <- function(thresh.default,data.df) {
+ data.df %>% 
+  mutate(default.pred = ifelse( prob.log  < thresh.default,0,1)) %>% 
+  with(mean(default.val != default.pred))
+}
+
+##Checking...
+calcErr(0.5,test.df)  
+```
+
+Looks good. Use it over the sequence of thresholds.
+```{r}
+threshVals <- seq(0,1.0,length.out = 100)
+err.preds <- map_dbl(threshVals,function(val) calcErr(val, test.df))
+
+```
+Look for the min value.
+
+```{r}
+data.frame(thresh=threshVals,err=err.preds) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5) +
+  geom_hline(aes(yintercept=err.null),color="red")+
+  scale_y_continuous(limits=c(0,0.15))+
+  labs(title="Logistic Classifier Error rate as function of Threshold")
+```
+
+We appear to best the Null Rate, again by a wee bit.
+
+Track down the optimal threshold.
+```{r}
+(err.log <- min(err.preds))
+id.min<-which.min(err.preds)
+(min.Thresh <- threshVals[id.min])
+c(err.log,err.linear,err.null)
+```
+
+At this stage, we aren't doing  better than we did with the simple linear model. 
+
+
+#Logistic Regression with multiple predictors
+Add another predictor...income
+
+There appears to be something going on??
+
+```{r}
+plot1.gg <- ggplot(Default,aes(balance,income,  size=default,
+                               color=default))+
+    geom_point(aes(size=default))+
+    scale_color_brewer(palette="Set1")+
+    labs(title="Default by balance and income")
+plot1.gg
+```
+
+##The Model
+
+New train/test
+```{r}
+indicesTrain <- sample(1:N,sizeTrain,rep=F)
+train.df <- Default[indicesTrain,]
+test.df <-  Default[-indicesTrain,]
+```
+
+Build the model with two predictors
+```{r}
+mod.log2 <- glm(default ~ balance + income,
+                family = binomial, 
+                data = train.df)
+summary(mod.log2)
+
+```
+
+Assign probabilities on the test data
+```{r}
+test.df$prob.log <- predict(mod.log2,
+                            newdata=test.df,
+                            type="response")
+```
+
+
+Did we do any better?
+
+```{r}
+threshVals<-seq(0,1,length.out = 100)
+err.preds<-map_dbl(threshVals,function(val) calcErr(val,test.df))
+```
+
+
+```{r}
+data.frame(thresh=threshVals,err=err.preds) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5) +
+  geom_hline(aes(yintercept=err.null),color="red")+
+  scale_y_continuous(limits=c(0,0.15))+
+  labs(title="Logistic Classifier Error rate as function of Threshold")
+```
+
+
+```{r}
+(err.log2 <- min(err.preds))
+id.min <- which.min(err.preds)
+(thresh.min <- threshVals[id.min])
+c(err.log2, err.log, err.linear, err.null)
+```
+
+
+Looking better...
+
+
+Assign values and look at thhe Confusion matrix
+```{r}
+test.df <- test.df %>% 
+  mutate(pred.log = ifelse(prob.log < thresh.min,0,1))
+with(test.df,table(default.val, pred.log))
+
+```
+
+
+As before, we can group by students and see how we did in each class.
+
+```{r}
+test.df %>%
+  group_by(student) %>%
+  summarize(
+  err = mean(default.val != pred.log),
+  err.null = mean(default == "Yes"),
+  err.ratio = err / err.null
+  )
+
+
+```
+Are we doing better with students or non-students?
+
+## The Decision  Line for this model
+
+Build a decision   model on a grid in the balance x income plane
+```{r}
+incRange <- with(Default, range(income))
+balRange <- with(Default, range(balance))
+sizeGrid <- 50
+grid.xy <- expand.grid(
+seq(incRange[1], incRange[2], length = sizeGrid),
+seq(balRange[1], balRange[2], length = sizeGrid)
+)
+
+grid.df <- data.frame(income = grid.xy[, 1],
+balance = grid.xy[, 2])
+```
+
+
+Now make predictions on the grid using our logistic regression model  with two predictors (income and balance).
+```{r}
+grid.df$prob <- predict(mod.log2,
+                        newdata = grid.df,
+                        type = "response")
+```
+
+What are we looking at.
+
+We'll  color the grid according to the  predicted probability and add a line at the threshold  that minimizes the error rate.
+```{r}
+grid.df %>% 
+  ggplot()+
+  geom_tile(aes(balance, income,fill=prob),alpha=0.25)+
+  geom_contour(aes(balance,income,z=prob),
+               breaks=thresh.min,
+               size=2,
+               color="black")+
+  scale_fill_gradient2(low="blue",high="red",midpoint=thresh.min)+
+  geom_point(data=Default, aes(balance,income,color=default))+
+  scale_color_manual(values=c("blue","red"))+
+  labs(title="Decision Model for Default",
+       subtitle = sprintf("Threshhold=%s",round(thresh.min,2)))
+```
+
+Interesting...High income people tend to default at  lower balances?
+## Three predictors?
+
+Something is going on with the Student status. We can add this as a predictor to the model.
+
+
+
+Train+test again.
+```{r}
+indicesTrain <- sample(1:N,sizeTrain,rep=F)
+train.df <- Default[indicesTrain,]
+test.df <-  Default[-indicesTrain,]
+```
+
+
+A model with three predictors: balance, income, and student status.
+```{r}
+mod.log3 <- glm(default ~ balance + income + student,
+                family = binomial,
+                data = train.df)
+summary(mod.log3)
+```
+
+Not much is happening with Income now. Student status is "masking" income.
+
+
+Assign probs
+```{r}
+test.df$prob.log <- predict(mod.log3,newdata=test.df,type="response")
+```
+
+
+Build a  grid in the three variables: : balance, income, and student status.
+```{r}
+sizeGrid <- 50
+grid.xyz <- expand.grid(seq(incRange[1],incRange[2],length=sizeGrid),
+                       seq(balRange[1],balRange[2],length=sizeGrid),
+                       c("Yes","No"))
+head(grid.xyz)
+```
+
+Create a data frame and assign probabilities from  our three predictor model.
+```{r}
+grid.df <- data.frame(income=grid.xy[,1],
+                      balance=grid.xy[,2],
+                      student=grid.xyz[,3])
+
+grid.df$prob <- predict(mod.log3,
+                        newdata=grid.df,
+                        type="response")
+
+```
+
+
+```{r}
+test.df$prob.log <- predict(mod.log3,
+                            newdata = test.df,
+                            type = "response")
+```
+
+```{r}
+threshVals <- seq(0,1.0,length.out = 100)
+err.preds <- map_dbl(threshVals,function(val) calcErr(val,test.df))
+```
+
+
+
+Plot the errors as function of threshold
+```{r}
+data.frame(thresh=threshVals,err=err.preds) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5) +
+  geom_hline(aes(yintercept=err.null),color="red")+
+  scale_y_continuous(limits=c(0,0.15))+
+  labs(title="Logistic Classifier Error rate as function of Threshold")
+```
+
+Pick out the optimal values
+```{r}
+(err.log3 <- min(err.preds))
+id.min<-which.min(err.preds)
+(thresh.min <- threshVals[id.min])
+```
+
+
+
+The new confusion matrix
+```{r}
+test.df <- test.df %>% 
+  mutate(pred.log=ifelse(prob.log < thresh.min, 0, 1))
+with(test.df,table(default.val, pred.log))
+```
+
+A modest improvement
+```{r}
+c(err.log,err.log2,err.log3,err.null)
+```
+
+Plot it
+```{r}
+grid.df %>% 
+  ggplot()+
+  geom_tile(aes(balance, income,fill=prob),alpha=0.25)+  
+  facet_wrap(~student,ncol=1)+
+  geom_contour(aes(balance,income,z=prob,group=student),
+               breaks=0.5,
+               size=2,
+               color="black")+
+  scale_fill_gradient2(low="blue",high="red",midpoint=thresh.min)+
+  geom_point(data=Default, aes(balance,income,color=default))+
+  scale_color_manual(values=c("blue","red"))+
+  labs(title="Decision Model for Default",
+       subtitle = sprintf("Threshhold=%s",round(thresh.min,2)))
+```
+
+
+## Assignment
+The main shortcoming in the analysis  above is that a single train+test combo was used each time. It would be better to repeat the train+test combo a number of times to get more  stable estimates of the error rates. In other words, for each potental threshold value, it would be good to  compute the error rate for a large (ish) number of train+test combos and then use the mean of the errors as the estimate of the error.
+
+Note: Of course, one could also bootstrap the original data, but let's use the train+test approach here.
+
+Use these three  logistic regression models
+
+* One Predictor: balance
+* Two Predictors: balance and income
+* Three Predictors: balance, income, and student
+
+In each case, create a logistic regression model (as above). Determine the best threshold value by computing training error rates over a sequence of threshold values. For each value, use a train+test combination to determine your estimate of the error rate. 
+
+
+Report the best threshold value and the best error rate. 
+
+# Cost Functions and optimization
+Error rates are ok, but often there are separate "costs" associated
+with each of the four possible classication states.  
+
+ * Reward for True Negative: Correctly classify a non-default
+ * Reward for True Postive: Correctly classify a default
+ * Penalty for False Postive: a non-defaulter classified as a defaulter)
+ * Penalty for False Negative: a defaulter classified as a non-defaulter)
+
+
+Steps:  
+ - Build a cost function  
+ - Define costs for each of the four cases   
+ - These are subjective, context dependent  
+
+## Costs
+
+```{r}
+## True Negative: reward or break even
+cost.tn <- -100 
+
+## True Postive: reward
+cost.tp <- -200
+
+## False Postive: Some cost
+cost.fp <- 500
+
+## False Negative: Bigger cost
+cost.fn <- 5000
+```
+
+
+Assign costs to each prediction. In each case we know the  actual and predicted outcome.
+
+What's the best way to do this?
+
+
+One way:  
+Build a cost function and apply it rowwise to the data frame.
+
+```{r}
+costFunction <- function(trueVal,predVal){
+  ## True Pos
+  if(trueVal & predVal)
+    return(cost.tp)
+  ## Falsee Neg
+  if(trueVal & !predVal)
+    return(cost.fn)
+  ## False Positive
+if(!trueVal & predVal)
+    return(cost.fp)
+  ## True Neg
+  if(!trueVal & !predVal)
+    return(cost.tn)
+}  
+
+```
+
+Assign costs using  costFunction
+```{r}
+test.df <- test.df %>%
+  rowwise() %>%
+  mutate(cost = costFunction(default == "Yes",
+  pred.log == 1)) 
+
+```
+Did this work?? One way to look at it is with a 3-D table!
+```{r}
+with(test.df,
+     table(default, pred.log, cost))
+```
+
+Total cost of this prediction.
+```{r}
+with(test.df, sum(cost))
+```
+
+
+Now we can change the threshold and see how if affects the cost function
+```{r}
+thresh.pred <- 0.5
+test.df %>%
+    mutate(pred.log=
+               ifelse(prob.log < thresh.pred,
+                             0,1)) %>%
+  rowwise() %>% 
+  mutate(cost=costFunction(default == "Yes",
+                           pred.log==1)) %>% 
+  with(sum(cost))
+  
+```
+
+Make this a function
+```{r}
+costThreshFunction <- function(thresh.pred,data.df){
+  data.df %>%
+    mutate(pred.log=
+               ifelse(prob.log < thresh.pred,
+                             0,1)) %>%
+  rowwise() %>% 
+  mutate(cost=costFunction(default == "Yes",
+                           pred.log==1)) %>% 
+  with(sum(cost))
+}
+
+costThreshFunction(thresh.pred,test.df)
+```
+
+
+As before, we now loop over the threshold values looking for the lowest cost option.
+
+Now create a list of these values and plot them. This will show
+where the optimal threshold value is located
+
+```{r}
+threshVals <- seq(0,1.0,length.out = 100)
+cost.vals <- map_dbl(threshVals,function(val) costThreshFunction(val,test.df))
+```
+
+
+
+
+Of course, plot these  values  to make sure they look alright.
+```{r}
+data.frame(thresh=threshVals,err=cost.vals) %>% 
+  ggplot()+
+  geom_point(aes(thresh,err),size=0.5) +
+  ##scale_y_continuous(limits=c(0,0.15))+
+  labs(title="Logistic Classifier Error rate as function of Threshold")
+```
+
+
+Dig out the optimal threshold, ie the value that minimizes the  cost.
+
+```{r}
+id <- which.min(cost.vals)
+(cost.min <- cost.vals[id])
+(thresh.im <- threshVals[id])
+```
+
+Very interesting.  What does this say? How does the threshold value and the  choice of the cost function values  relate?
+
+```{r}
+sprintf("True False Cost = %s     False Negative Cost =  %s",cost.fp,cost.fn)
+```
+
+What would  happen if the cost.fp  increased?
+What would  happen if the cost.fn  increased?
+
+
+```{r}
+sprintf("True Positive Cost = %s     True Negative Cost =  %s",cost.tp,cost.tn)
+```
+
+
+*Note:* 
+  * Different cost functions lead to different optimal thresholds.
+  * Of course, we really want to train+test or use bootstrapping this on the data to more effectively determine the optimal threshhold.
+
+
+
+
+
+# Assignment  2
+
+Your task is to create a model to predict "success" of a candidates based on performance metrics You have two data sets:
+
+* trainPerformance.csv
+* testPerformance.csv
+
+In each data set, there are 9 fields. The first 8 are performance metrics, the last one is a boolean (True/False) field indicating if the candidate was a "star" the after being hired. 
+
+The two sets have identical structures. The plan is to build your model on the training data, and evaluate it (test it) on the the test data. Your work is scored by a cost matrix.
+
+
+## Cost Matrix
+
+|Prediction|Actual|Cost|Comment| 
+|-|-|-:|:-|
+| FALSE   | TRUE |     20 | **False Negative**: undervalued a candidate, that'll cost  you|
+| TRUE  |   FALSE|     50 | **False Postive**: overvalued a candidate|
+| TRUE  |   TRUE|     -10 |**True Positive**:  you picked a winner (negative cost)|
+| FALSE |   FALSE|   0 | **True Negative**: no risk/no reward|
+
+Build a logistic regression model with up to five predictors number (no interactions)  to predict next year's performance outcome status.  Your optimal model will be the one with the lowest estimated  cost.
+
+
+
+### Extra:
+Build a KNN model for the same task. With KNN, you will have to optimize on both the threshold and the the value of k (nearest neighbors).
+
+Note: This data has been "scaled"  so that  all the predictors are on the same scale (mean=0, var=1). This is necessary to use KNN.
+

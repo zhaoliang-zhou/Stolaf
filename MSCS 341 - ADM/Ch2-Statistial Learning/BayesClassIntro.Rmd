@@ -1,0 +1,395 @@
+---
+title: "Classification and Bayes Classifier"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r}
+library(tidyverse)
+```
+
+## Introduction
+
+Here we take a quick tour of how the Bayes Classifier works. As  with the introduction to regression, we will use some synthetic data to help understand the key ideas.
+
+
+## Synthetic Data
+OK, this is a bit convoluted. 
+
+
+A crazy function to define the boundary
+```{r}
+a <- 1
+b <- -1
+theFunc <- function(x) 2*x*(x-a)*(x-b)
+# helper <- function(x,y){
+#   return (c(x,y,f(x)-y))
+# }
+
+
+```
+A quick peek at theFunc
+```{r}
+x <- seq(-2,2,by=.1)
+plot(x,theFunc(x))
+```
+
+
+A grid of values.
+
+```{r}
+size <- 100
+wx <- 2
+wy <- 2
+xvals <- seq(-wx,wx,length=size)
+yvals <- seq(-wy,wy,length=size)
+
+theGrid <- expand.grid(xvals,yvals)
+names(theGrid) <- c("x","y")
+```
+
+Some  craziness to associate a probability to each grid point.
+
+```{r}
+sc <- 1.5  # scale
+gridData.df <- theGrid %>% 
+  rowwise() %>% 
+  mutate(valz=theFunc(x)-y) %>% 
+  ## some razmataz to fix up the probs
+  mutate(prob=1/2*(2-exp(-abs(valz)/sc))) %>% 
+  mutate(prob=ifelse(valz < 0, 1-prob,prob))
+```
+
+A quick peek at what just happened. This is what  really matters.
+
+The values on the grid are the underlying probabilities that a grid point is class=0. Otherwise, it's in class=1
+
+```{r}
+gridData.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,color=prob),size=2)+
+  scale_color_gradient2(low="blue",mid="white",high="red",midpoint=0.5)+
+  geom_contour(aes(x,y,z=prob),breaks=0.5)+
+  labs(title="Underlying Probability Model")
+```
+
+Assign classes according to these probabilities.
+```{r}
+gridData.df <- gridData.df %>% 
+  mutate(class=ifelse(runif(1,0,1) > prob, "0","1"))
+```
+
+Now we can see how the actual classes were selected. 
+```{r}
+gridData.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,fill=class),size=2)+
+  scale_fill_manual(values=c("blue","red"))+
+  geom_contour(aes(x,y,z=prob),breaks=0.5,size=1,color="black")+
+  labs(title="Underlying Probability Model",
+       subtitle="Classes selected")
+```
+
+
+##  Building KNN models samples from the grid.
+
+Build a data set by sampling.
+```{r}
+sampleSize <- 250
+
+gridSize <- nrow(gridData.df)
+data.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+  select(x,y,prob,class)
+
+```
+
+A quick peek
+
+```{r}
+
+data.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,fill=factor(class)),size=2)+
+  scale_fill_manual(values=c("blue","red"))+
+  labs(title="Our Data")
+
+
+```
+
+Look at the data set with the underlying probability model.
+
+```{r}
+
+data.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,fill=factor(class)),size=2)+
+  scale_fill_manual(values=c("blue","red"))+
+  geom_contour(data=gridData.df,
+               aes(x,y,z=prob),breaks=0.5,size=1,color="black")+
+  scale_color_gradient2(low="blue",mid="white",high="red",midpoint=0.5)+
+  geom_tile(data=gridData.df,aes(x,y,fill=factor(class)),size=2,
+            alpha=.2)+
+  ##scale_fill_gradient2(low="blue",mid="white",high="red",midpoint=0.5)+
+  labs(title="Our Data",
+       subtitle="With Underlying Probability Model")
+
+```
+
+## Bayes  Classifer
+
+The Bayes Classifier simply says that, if we know the probability model, assign each point to
+the class that has the highest probability.
+
+
+That's easy....
+```{r}
+data.df <- data.df %>% 
+  mutate(bayesClass=ifelse(prob>0.5,1,0))
+
+```
+
+
+
+Now the Bayes Error Rate and the "Confusion Matrix"
+
+```{r}
+
+## Error rate
+(err.bayes <- with(data.df,mean(class != bayesClass)))
+
+#Confusion Matrix
+with(data.df,table(class,bayesClass))
+```
+In this case, the Bayes Error rate is `r err.bayes`. In principle, this is a lower bound on any classification scheme.
+
+
+## KNN Modeling
+Let's us the KNN classification algorithm to compete with the Bayes Classifier.
+
+Remember: The Bayes Classifier only works in synthetic examples, you do not know the underlying probability model in practice.
+```{r}
+##The library
+library(class)
+```
+
+Build a training data set
+```{r}
+sampleSize <- 50
+train.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+  select(x,y,class)
+
+```
+
+
+Set up the matrices for KNN
+
+```{r}
+train.X <- as.matrix(train.df[c("x","y")])
+train.Y <- as.matrix(train.df["class"])
+
+```
+
+
+Repeat to create some testing data.
+```{r}
+test.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+  select(x,y,prob,class)
+test.X <- as.matrix(test.df[c("x","y")])
+```
+
+
+Pick a value for k and see what happens.
+
+```{r}
+kVal <- 15
+## The model...build on train, run on test
+mod.knn <- knn(train.X,test.X,train.Y,k=kVal,prob=TRUE)
+```
+
+
+How well did we do...Confusion matrix and test error...
+```{r}
+## Confusion matrix
+with(test.df,table(class,mod.knn))
+
+## Error rate for KNN
+(err.knn <- with(test.df,mean(class!=mod.knn)))
+
+```
+Compare with Bayes Error Rate
+```{r}
+sprintf("Bayes Error Rate: %s   Knn Error  (k=%s): %s",err.bayes,kVal,err.knn)
+```
+Of course, we can  change the kVal and explore other  values. 
+
+Let's do this systematically.
+
+
+Run through a sequence of kVals. Store the results in a list for future consideration.
+```{r}
+maxK <- sampleSize/2
+errs.knn <- rep(0,maxK)
+
+for(kVal in 1:maxK){
+  print(sprintf("K=%s",kVal))
+  mod.knn <- knn(train.X,test.X,train.Y,k=kVal,prob=TRUE)
+  errs.knn[kVal] <- with(test.df,mean(class!=mod.knn))
+}
+
+
+```
+
+Take a graphical peek
+
+
+```{r}
+
+data.frame(k=1:maxK,err=errs.knn) %>%
+    ggplot()+
+    geom_point(aes(k,err))+
+    geom_line(aes(k,err))
+
+```
+
+This is interesting, but we are too beholden to the train and  test data sets. A better approach is
+to repeatedly use new train/test combos. As well, at each kVal, we should repeat a fixed number of times and use the average error.
+
+```{r}
+######
+reps <- 50 ## Number of reps at each kVal
+errs.knn <- matrix(nrow=maxK,ncol=reps)
+for(kVal in 1:maxK){
+  print(sprintf("K=%s",kVal))
+  for(rep in 1:reps){
+    ##New train and test data
+    train.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+      select(x,y,prob,class)
+    test.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+      select(x,y,prob,class)
+    train.X <- as.matrix(train.df[c("x","y")])
+    train.Y <- as.matrix(train.df["class"])
+    test.X <- as.matrix(test.df[c("x","y")])
+    mod.knn <- knn(train.X,test.X,train.Y,k=kVal,prob=TRUE)
+    errs.knn[kVal,rep] <- with(test.df,mean(class!=mod.knn))
+  }
+}
+```
+
+
+Ttake the  average of each kVal errors
+```{r}
+aveErrs <- apply(errs.knn,1,mean)
+```
+Now plot the results
+```{r}
+data.frame(k=1:maxK,err=aveErrs) %>%
+  ggplot()+
+  geom_point(aes(k,err))+
+  geom_line(aes(k,err))+
+  ##geom_smooth(aes(k,err),method="loess",se=FALSE)+
+  geom_hline(aes(yintercept=err.bayes),color="blue")+
+  labs(title="Average KNN  error for different kVals",
+       subtitle="BayesError in blue")
+
+```
+It appears as the optimal choice of k is somewhere around 5-8. 
+```{r}
+kOpt <- 6
+```
+
+How does this work as a model moving  forward?
+
+Let's visualize. Use our last training on the entire grid.
+
+Start with a fresh training data set
+```{r}
+train.df <- gridData.df[sample(1:gridSize,sampleSize,rep=F),] %>% 
+  select(x,y,prob,class)
+train.X <- as.matrix(train.df[c("x","y")])
+train.Y <- as.matrix(train.df["class"])
+
+```
+Build predictions on the entire grid.
+
+```{r}
+
+grid.X <- as.matrix(gridData.df[c("x","y")])
+mod.knn.grid <- knn(train.X,grid.X,train.Y,k=kVal,prob=TRUE)
+```
+Assign relevant values
+
+```{r}
+gridData.df$knnProb <- attr(mod.knn.grid,"prob")
+gridData.df$class.knn <- mod.knn.grid
+```
+Compute the error over  the entire grid
+```{r}
+(err.knn <- with(gridData.df, mean(class.knn != class)))
+```
+
+How close are we to the Bayes Error rate?
+```{r}
+c(err.bayes,err.knn)
+```
+
+What does this look like?
+```{r}
+
+gridData.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,fill=mod.knn.grid),alpha=.6)+
+  scale_fill_manual(values=c("blue","red"))+
+  geom_contour(aes(x,y,z=prob),breaks=0.5,color="black")+
+  labs(title="Best KNN Model",
+       subtitle="Bayes Decision Boundary Included")
+
+
+```
+Iteresting...Our best KNN model has a decision boundary which roughly reflects underlying Bayes Decision boundary (the optimal decision boundary).
+
+## Logistic Regression
+Just for fun, let's apply another classification method. We'll use Logistic Regression, a technique you might have seen already. In any case, we will look at it in detail later in the course. 
+
+For now, we'll just treat it as a "black box" method.
+
+
+Here's how it  runs
+```{r}
+mod.log <- glm(factor(class) ~ x + y,data=train.df,family=binomial)
+```
+
+
+Pull off the relevant information...
+
+```{r}
+probs <- predict(mod.log,type="response",newdata=gridData.df)
+gridData.df$class.log <- probs>0.5
+
+```
+
+
+
+What does logistic regression  look  like?
+```{r}
+gridData.df %>% 
+  ggplot()+
+  geom_tile(aes(x,y,fill=class.log),alpha=.16)+
+  scale_fill_manual(values=c("blue","red"))+
+  geom_contour(aes(x,y,z=prob),breaks=0.5,color="black")+
+  labs(title="Logistic Regression Model",
+       subtitle="Bayes Decision Boundary Included")
+
+
+```
+Logistic Regression is a (generalized) linear model, hence it's not surprising the decision boundary is a line!
+
+How well does it work?
+```{r}
+
+with(gridData.df,table(class,class.log))  
+err.log <- with(gridData.df,mean((class==1) != class.log))  
+c(err.bayes,err.knn,err.log)
+```
+
+# Conclusion
+The Bayes Classifier is only of theoretic value. Like the $\epsilon$ from the regression model, it is unknowable in practice. But it does provide a framework for understanding the limitations of any classficiation model.

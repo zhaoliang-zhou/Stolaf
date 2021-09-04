@@ -1,0 +1,593 @@
+---
+title: "Clustering and Heatmaps"
+author: "Matt Richey"
+date: "05/04/20"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache = TRUE)
+```
+#Introduction
+The goal here is to use a combination of clustering techniques
+along with Principal Components in order to understanding groupings
+of professional basketball players in the National Basketball
+Assocation (NBA)
+
+
+#Load the libraries
+```{r}
+suppressMessages(library(ggplot2))
+suppressMessages(library(dplyr))
+suppressMessages(library(ggrepel))
+suppressMessages(library(graphics))
+suppressMessages(library(factoextra))
+
+
+```
+
+
+
+#Create the data
+For our dataset, we will use use Advanced Stats found at 
+Set Basketball-reference.com: NBA/Season/Advanced
+The data were extracted via some web scraping and data curation
+using R's rvest package
+Run Rvest_NBA.R to extract the data.
+
+
+Read the data, it's been saved to file.
+```{r}
+dataDir <- "~/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap10"
+dataFile <- "NBA2019.csv"
+nba.df0 <- read.csv(file.path(dataDir,dataFile))
+```
+
+
+How many observations?
+```{r}
+nrow(nba.df0)
+```
+
+
+Who are the players?
+```{r}
+players <- nba.df0$Player
+head(players)
+```
+
+
+##Some data reorganization
+To start, we will subset the data. As a first step,
+will just use players who logged the most minutes during the
+season. For our purposes, we'll use the top 10%.
+
+
+Take top 10% or so of players my minutes played
+```{r}
+(minMins <- with(nba.df0,quantile(MP,0.90)))
+
+```
+
+
+Only use these players, and LeBron James (who was injured and
+wasn't in the top 15% of minutes played.Gotta has LeBron)
+```{r}
+nba.df <- nba.df0 %>% 
+    filter(MP > minMins| Player == "LeBron James") 
+
+    
+```
+
+
+##Principal Components
+Extract player names and the data fields
+```{r}
+(players <- nba.df$Player)
+nba.df1 <-  nba.df[,8:27]
+
+```
+
+
+Scale and add row names
+```{r}
+nba.df1 <- data.frame(scale(nba.df1))
+row.names(nba.df1) <- players
+
+```
+
+
+
+Here is the Principal Components analysis
+```{r}
+nba.pca <- prcomp(nba.df1)
+```
+
+
+What does facto tell us?
+```{r}
+fviz_pca_biplot(nba.pca,repel=TRUE)
+
+```
+
+The Biplot is informative. There are two orthogonal directions of Loadings
+
+One group inlcudes mostly offensive stats
+  * OBPM (Offensive Box Plus/Minus)
+  * ASTPerc (Assist %)
+  * USGPerc (Usage %)
+  * etc
+  
+The other includes defensive and other "dirty works" stats
+ * ORBPerc (Offensive Rebound %)
+  * DWS (Definsive Win Shares)
+  * BlkPerc (Blocked Shot %)
+  
+The Predictor Pt3Rate (Three Pointer Rate) is interesting. This points in the opposite direction of the positive defensive stats and is orthogonal to the overall offensive stats. This implies Pt3Rate is not consistent with overall  offensive contributions and is a net negative defensively.
+
+
+The Dim1 (PC1) and  Dim2 (PC2) axes can be intrepreted as follows.
+
+ * Dim1 appears to be tightly linked to the "high profile" offensive stats and  stats such  as Win Percentage
+ * Dim2 appears to select "dirty work" stats like rebounding and defense.
+ 
+ 
+
+
+
+
+## Principal Components by hand.
+Using the nba.pc data frame, we can extract information and build
+custom views.
+
+Pull off the PCA information
+This is the change of basis matrix (recall: V in the SVD)
+```{r}
+rots <- nba.pca$rotation
+```
+
+
+Rotate into the new basis.
+```{r}
+nba.pca1<- data.matrix(nba.df1) %*% rots
+dim(nba.pca1)
+```
+
+
+The first three directions
+```{r}
+pca1 <- nba.pca1[,1]
+pca2 <- nba.pca1[,2]
+pca3 <- nba.pca1[,3]
+```
+
+
+## Add in K Means clustering to the Principal Components
+
+
+Five clusters, this is arbitrary. However, five is an important number in basket ball.
+We'll run 30 times, allow up to 30  iterations for convergence
+```{r}
+K <- 5
+nba.km <- kmeans(nba.df1,K,iter.max=20,nstart=30)
+```
+
+
+Here our our clusters
+```{r}
+nba.km$cluster
+```
+
+
+### Quick Computation: 
+What are the optimal number of  clusters? Run through a sequence of k values and create an elbow plot.
+
+
+## Back to Clusters
+Add the clusters to the data frame
+```{r}
+nba.df$cluster.km<- nba.km$cluster
+head(nba.df)
+```
+
+
+Look at one cluster
+Who are these players...any NBA fans out there?
+```{r}
+filter(nba.df,cluster.km==5)%>%
+    dplyr::select(Player)
+```
+
+
+What are the cluster sizes?
+```{r}
+with(nba.df,table(cluster.km))
+```
+
+
+Build the rotated data frame
+```{r}
+nbaCluster.df <- data.frame(pca1,pca2,
+                            cluster=factor(nba.df$cluster.km),
+                            name=players)
+```
+
+
+We can now plot the cluster.pcas on top of the PCA first two components.
+```{r}
+ggplot(nbaCluster.df,aes(pca1,pca2,color=cluster))+
+    geom_point(size=1)+
+    geom_text_repel(aes(label=name),size=3)+
+    ggtitle("NBA Cluster Analsys and PCA")
+```
+
+
+Anything interesting here?        
+
+
+
+#Hierarchical clustering
+As an alternative to Kmeans, we can use Hierarchical Clustering.
+To do so, use R hclust function. 
+
+
+
+The first decision is the distance function. Here we will use the euclidean distance function.
+
+Remember, our data is already scaled! Whenever using anything with distance involved, you probably want to scale your data.
+
+
+```{r}
+nba.dist <- dist(nba.df1)
+
+```
+
+
+Take a look at the hierarchical plots with three different clustering methods.
+
+### First: The Complete Clustsers
+```{r}
+par(mfrow=c(1,1))
+nba.hc.c <- hclust(nba.dist,method="complete")
+plot(nba.hc.c,cex=0.5,main="Complete")
+```
+
+
+### Average
+```{r}
+nba.hc.a <- hclust(nba.dist,method="average")
+plot(nba.hc.a,cex=0.5,main="Average")
+
+```
+
+
+### Single
+```{r}
+nba.hc.s <- hclust(nba.dist,method="single")
+plot(nba.hc.s,cex=0.5,main="Single")
+```
+#### All Three
+Let's look at all three. They are quite different. The choice of clustering type if very important in determining the Hierachical Tree.
+```{r}
+par(mfrow=c(1,3))
+plot(nba.hc.c,cex=0.5,main="Complete")
+plot(nba.hc.a,cex=0.5,main="Average")
+plot(nba.hc.s,cex=0.5,main="Single")
+par(mfrow=c(1,1))
+```
+
+
+## ggndendro package
+We can bet a better visuals using ggdendrogram in the ggdendro package.
+```{r}
+library(ggdendro)
+```
+
+
+### Complete
+```{r}
+ggdendrogram(nba.hc.c,rotate=T) +
+  labs(title="Complete Clustering")
+```
+
+
+### Average
+```{r}
+ggdendrogram(nba.hc.a,rotate=T) +
+  labs(title="Average Clustering")
+
+```
+
+
+### Single
+```{r}
+ggdendrogram(nba.hc.s,rot=T) +
+  labs(title="Single Clustering")
+
+```
+
+
+## Custom Dendograms
+Of course, it's always nice to be able  to build our own  dendrogram. We can do better visuals with ggplot and create a version of the plot above, only with more control over the stucture. 
+
+First Extract the gg data using the complete distance
+```{r}
+nba.dendr <- dendro_data(nba.hc.c)
+```
+
+
+
+Build the plot
+```{r}
+nba.dendro.gg <-
+    ggplot() +
+    geom_segment(data=segment(nba.dendr),
+                 aes(x=x, y=y, xend=xend, yend=yend),size=.1) +
+    geom_text(data=label(nba.dendr),
+              aes(x=x, y=y, label=label, hjust=0),
+              size=2,color="blue") +
+    coord_flip() +
+    scale_y_reverse(expand=c(0.2, 0))+
+    theme(axis.line.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_rect(fill="white"),
+          panel.grid=element_blank())+
+    guides(color=F)+    
+    labs(title="Hierarchical Clustering of NBA Players",
+            subtitle="Complete Clustering")
+nba.dendro.gg
+```
+
+
+## Clustering with Hierarchical Trees
+Using a "cut" we can create clusters. Recall a cut is just picking a line across the tree which intersects the edges. Everything below each intersected edge is in a cluster. 
+Identify the  clusters. As the line descends from the top (i.e., the root, you  sequentially pickup one additional cluster (usually) at a time.
+
+
+R has a nice function to do this called "cutree".
+
+Let's pick a cut at a paricular level, say 6.
+```{r}
+Cut.lev <- 6
+cut.labs <- cutree(nba.hc.c,Cut.lev)
+table(cut.labs)
+```
+
+
+Now create data frame to match to player names.
+```{r}
+cut.df <- data.frame(Player=names(cut.labs),
+                     cluster=cut.labs)
+```
+
+
+
+Add in cluster information
+```{r}
+labels.df <- label(nba.dendr)%>%
+        inner_join(cut.df,by=c("label"="Player"))
+```
+
+
+Replot with clusters labeled.
+```{r}
+nba.dendro.gg1 <- nba.dendro.gg +
+    geom_text(data=labels.df,
+              aes(x=x, y=y, label=label,
+                  hjust=0,
+                  color=factor(cluster)),
+              size=2)+
+    scale_color_brewer(palette="Set1")+
+  labs(title="Hierarchical Clustering (Euclidean Distance Metric)",
+       subtitle="Complete Clustering")
+nba.dendro.gg1
+
+
+```
+
+If you are a basketball fan, what do you think of these clusters. Do they make sense  from a "domain expert" point of view?
+
+
+### Correlation as the distance metric
+
+A different way of measuring distance is to use correlation. This way,
+players that are high correlated are close together. Recall that for two variables x and y,
+$cor(x,y)$ is a number between 0 and 1.  The values near 0 indicates no correlation (very far apart) while values near 1 indicate high correlation (close together). Hence we use the quantity 
+
+$$dist_{cor}(x,y)=1-cor(x,y)$$
+
+
+
+There is one more decision. We could either
+look at how the performance variables are correlated.  Or, we could how the players
+are correlated. 
+
+To compare to what we did above, we want the player correlation.
+
+
+This means, you need to get the data frame oriented properly for the correlation function. The variables we want to correlate need to be the columns.
+
+In our case, this means we need the transpose.
+```{r}
+colnames(t(nba.df1))
+```
+
+Now compute the player correlations (and check the dimensions, there should be a row/col for each player).
+```{r}
+cor.mat <- cor(t(nba.df1))
+dim(cor.mat)
+```
+
+
+From this correlation matrix, we can convert to a  distance function appropriate for the hierarchical clustering.
+```{r}
+nba.dist.cor <- 1-as.dist(cor.mat)
+nba.hc.cor <- hclust(nba.dist.cor,method="complete")
+nba.dendr.cor <- dendro_data(nba.hc.cor,main="Complete")
+
+```
+
+
+
+Add cluster cuts
+```{r}
+Cut.lev <- 5
+cut.labs <- cutree(nba.hc.cor,Cut.lev)
+cut.df <- data.frame(Player=names(cut.labs),
+                     cluster=cut.labs)
+
+```
+
+
+Add in cluster information
+```{r}
+labels.df <- label(nba.dendr.cor)%>%
+        inner_join(cut.df,by=c("label"="Player"))
+
+
+```
+
+
+Replot with clusters labeled
+```{r}
+nba.dendro.gg2 <- ggplot() +
+  geom_segment(data=segment(nba.dendr.cor),
+               aes(x=x, y=y, xend=xend, yend=yend),size=.1) +
+  geom_text(data=label(nba.dendr.cor),
+            aes(x=x, y=y, label=label, hjust=0), size=2,color="blue") +
+  coord_flip() + scale_y_reverse(expand=c(0.2, 0))+
+  theme(axis.line.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_rect(fill="white"),
+        panel.grid=element_blank())+ 
+  geom_text(data=labels.df,
+            aes(x=x, y=y, label=label,
+                hjust=0,
+                color=factor(cluster)),
+            size=2)+
+  scale_color_brewer(palette="Set1")+
+  guides(color=F)+
+  ggtitle("Hierarchical Clustering (Correlation Distance Metric)")
+nba.dendro.gg2
+```
+
+
+```{r}
+library(gridExtra)
+grid.arrange(nba.dendro.gg1,nba.dendro.gg2,nrow=1)
+```
+
+These trees and clusters are quite different. Pick any player in, say, the Cut Cluster and identify its cluster. Find the player on Correlation Cluster tree. Note how the clusters compare. Often times they are quite different. 
+
+
+
+## Swap the variables
+This whole analysis was done from the perspective of clustering players. We could have clustered on the statistics.
+
+```{r}
+## Transpose the data 
+stat.dist <- dist(t(nba.df1))
+stat.hc.c <- hclust(stat.dist,method="complete")
+stat.hc.a <- hclust(stat.dist,method="average")
+stat.hc.s <- hclust(stat.dist,method="single")
+```
+
+Now we can see the relationship between the statistics variables.
+```{r}
+plot(stat.hc.c,cex=0.5,main="Complete Stat Tree")
+```
+
+We see that BPM (Box Plus/Minus( and  VORP (Value Over Replacement Player) are closely related (as the should  be).  One can easily identify three or four distinct clusters of statistics types from this tree.
+
+# Heatmaps
+We sawy heatmaps earlier. A heatmap provides a way to see relationships between larges sets of variables. In this case, players and statistics.
+
+
+A nice into can be found at: http://www.r-bloggers.com/drawing-heatmaps-in-r/
+
+
+
+## Heatmap without clustering
+In this case, each grid value is the just the  player x stat value (scaled).
+
+
+Set the color palatte with blue being the low values and red the high values.
+```{r}
+my_palette <- colorRampPalette(c("blue", "white", "red"))(n = 20)
+my_palette
+```
+
+
+Build a heat map. This requires a data matrix.
+```{r}
+nba.data <- data.matrix(nba.df1)
+heatmap(nba.data,col=my_palette,Rowv=NA,Colv=NA)
+```
+
+From the heatmap, you can see that Russel Westbrook in red ("hot") in AstPerc (Assist Percentage, he was second in the league) but blue ("cold") TrueShotPerc. This is interesting because Westbrook led the league in scoring. He took a lot of shots to do so.
+
+
+As displayed, this isn't really informative. We need to arrange the
+entries in a natural manner,
+
+
+## Data clustering with trees
+
+Here we have a heatmap with a hierarchical clustering on both the
+players and the stat variables. The function will grouping for us.
+
+By default, heatmup will use complete clustering in both variables. 
+```{r}
+heatmap(nba.data,col=my_palette)
+```
+
+We can see several things.
+
+  * A cluster of blue in the upper right. These are all players with a similar set of (low)  values among  the statistics related to Turnovers, Steals, Usage Perc. 
+  * There is cluster of red in the middle of the player column with the same variables. 
+  * There is some red in the BBPM, BPM,  VORP, PER  statistics. 
+  
+
+BTW: The heatmap function uses hclust from above to create the trees. By default, it uses  complete clustering.  We can convert to another clustering using the heatmap's hclustfun parameter. We need to modify it to specify the clustering type.
+
+What about single clustering?
+```{r}
+heatmap(nba.data,col=my_palette,
+        hclustfun = function(distInfo) hclust(distInfo,method="single"))
+```
+
+As an alternative, let's use  correlation as the distance function
+```{r}
+dist.cor <- function(x) as.dist(1-cor(t(x)))
+```
+
+Now add this as the distfun.
+```{r}
+heatmap(nba.data,
+        col=my_palette,
+        distfun=dist.cor)
+
+```
+
+Of course, you could change the clustering type as well.
+
+```{r}
+heatmap(nba.data,
+        col=my_palette,
+        distfun=dist.cor,
+         hclustfun = function(distInfo) hclust(distInfo,method="average"))
+```
+
+
+Intesting...
+
+### Heat Map Summary
+Heat maps are great ways too show  the relationship between large sets of iteracting variables. As the examples above illustrate, there is no "right" way to look at these interactions. Rather, you have a number of option related to the clustering method you choose combined with how you interpret distance!

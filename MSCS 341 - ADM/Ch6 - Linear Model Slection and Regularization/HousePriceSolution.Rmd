@@ -1,0 +1,479 @@
+---
+title: "Housing Data"
+author: "Matt Richey"
+date: "4/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Libraries
+Load all the libraries
+```{r}
+library(tidyverse)
+library(glmnet)
+```
+
+## Data input 
+```{r}
+dataDir <- "~/Dropbox/COURSES/ADM/ADM_S20/CODE/Chap06/"
+dataFile <- "housePrices.csv"
+dictionary.df <- read.csv("houseNames.csv")
+house.df <- read.csv(file.path(dataDir,dataFile))
+```
+
+
+
+# Predictor Correlation
+
+Extract the matrices and scale the data
+```{r}
+numPreds <- ncol(house.df)-1
+feature.mat <- data.matrix(house.df[,1:numPreds])
+feature.mat.scaled <- scale(feature.mat)
+houseScaled.df <- data.frame(feature.mat.scaled,house.df[,numPreds+1])
+```
+
+Build the correlations
+```{r}
+feature.cor <- cor(feature.mat)
+feature.dist <- 1-as.dist(abs(feature.cor))
+feature.cluster <- hclust(feature.dist,method="complete")
+plot(feature.cluster)
+```
+Looks good, it's easy to see some highly correlated predictors. For example, the Garage.cars  and  Garage.Area. 
+
+
+Build the correlation heatmap. Start by extracting the correlation order from the tree above.
+```{r}
+##The feature  names
+feature.names <- names(house.df[,1:numPreds])
+## cluster  ordering
+cluster.ord <- feature.cluster$order
+## reorder according to  cluster  ordering
+feature.cor <- feature.cor[cluster.ord,cluster.ord]
+(feature.names.ord <- feature.names[cluster.ord])
+```
+
+
+Build the data frame for the heatmap.
+```{r}
+featureCor.df <- data.frame(feature.cor)
+##add numberings for the features
+featureCor.df$pred1 <-1:numPreds
+## gather  so this is 46 x 46
+featureCor.df <- featureCor.df  %>% 
+  gather(pred2.name,cor,1:numPreds) %>% 
+  inner_join(data.frame(pred2.name=feature.names.ord,
+                        pred2=1:numPreds)) %>% 
+  select(-pred2.name)
+```
+And the heat map
+```{r}
+breakLocations=1:numPreds
+## get the midpoint of the abs(cor) for color scale
+mpt <- with(featureCor.df,mean(abs(cor)))
+featureCor.df %>% 
+  ggplot()+
+  geom_tile(aes(pred1,pred2,fill = abs(cor)),color="black")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=9),
+        axis.text.y = element_text(size=7))+
+  scale_fill_gradient2(low="white",high="red",midpoint=mpt)+
+  scale_x_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  scale_y_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  labs(title="Correlation Heatmap",
+       x="",y="")
+```
+
+
+# Feature Selection:
+Note: prints some relevant information  as it goes along so you can track the progress.
+```{r Main Loop}
+availPreds <- 1:numPreds
+modelPreds <- c()
+## keep track of the R2 for reference
+maxR2 <- c()
+##Keep going as long as there are available predictors left
+while(length(availPreds) > 0){
+    ##add predictor which increases R^2 the most
+    ##keep track of the R^2 values for reference
+    allR2 <- c()
+    for(id in availPreds){
+      ##the augmented predictors
+      augPreds <- c(modelPreds,id)
+      ## Build the data frame with the augmented predictors 
+      data.df <- house.df[,c(augPreds,numPreds+1)]
+      ##the model and its summary
+      mod.curr <- lm(SalePrice ~ .,
+                     data=data.df)
+      mod.sum <- summary(mod.curr)
+      ##grab the R^2
+      allR2 <- c(allR2,mod.sum$r.squared)
+    }
+    ##Find the index of the min R^2
+    max.id <- which.max(allR2)
+    ##get the best predictor and R^2
+    bestPred <- availPreds[max.id]
+    bestR2 <- max(allR2)
+    ##Add these into the collection
+    modelPreds <- c(modelPreds,bestPred)
+    ## remove the  bestPred from  the availPreds
+    availPreds <- setdiff(availPreds,bestPred)
+    maxR2 <- c(maxR2,bestR2)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  R^2 Value: %s",bestPred,round(bestR2,3)))
+    ##print(modelPreds)
+}
+```
+
+
+
+It will help to have a help function  to compute the cross-validated MSE.  
+```{r}
+
+## args: a data frame and a number of folds (default to 10).
+## ret: k-fold cross-validated MSE and the Standard Error
+data.df <- house.df
+mseCV_SE <- function(data.df,numFolds=10){
+  dataSize <- nrow(data.df)
+  folds <- sample(1:numFolds,dataSize,rep=T)
+  mse <- numeric(numFolds)
+  for(fold in 1:numFolds){
+    train.df <- data.df[folds !=fold,]
+    test.df <- data.df[folds==fold,]
+    mod <- lm(SalePrice  ~ ., 
+              data=train.df)
+    vals <- predict(mod,newdata=test.df)
+    mse[fold] <- with(test.df,mean((SalePrice-vals)^2))
+  }
+  c(mean(mse),sqrt(var(mse)/numFolds))
+}
+ 
+## and just the CV
+mseCV <- function(data.df,numFolds=10){ 
+ mseCV_SE(data.df,numFolds)[1]
+}
+
+```
+
+
+
+Compute the MSE of all the models from the forward selection
+```{r}
+allMSE <- map_dbl(1:(numPreds-0),
+                  function(totPred) 
+                 mseCV(house.df[,c(modelPreds[1:totPred],numPreds+1)]))
+
+```
+How's this look?
+```{r}
+data.frame(numPred=1:(numPreds-0),
+           mse=allMSE) %>% 
+  ggplot()+
+  geom_point(aes(numPred,mse))+
+  geom_line(aes(numPred,mse))+
+  labs(title="Forward Selection: Cross-validation",
+       subtitle="Predictors selected with maximal R^2 at each  step",
+       x = "Number of Predictors",
+       y = "MSE (CV)")
+```
+
+Get the One SE number of predictors
+```{r}
+(predMin <- which.min(allMSE))
+##build this model
+data.df <- house.df[,c(modelPreds[1:predMin],numPreds+1)]
+## get  both the MSE  estimate and the SE
+(mseInfo <- mseCV_SE(data.df))
+
+## add the MSE and the SE.
+mseCut <- mseInfo[1]+mseInfo[2]
+## 
+(thePreds <- (1:numPreds)[allMSE < mseCut])
+
+(optNumPreds <- min(thePreds))
+(forwardPreds <- modelPreds[1:optNumPreds])
+```
+Interesting, just `r optNumPreds` predictors.
+
+and the resulting estimated MSE
+```{r}
+(mse.forward <- allMSE[optNumPreds])
+```
+What are these predictors?
+
+```{r}
+dictionary.df[forwardPreds,]
+```
+Look at these on the heat map
+
+
+
+```{r}
+
+
+breakLocations=1:numPreds
+## get the midpoint of the abs(cor) for color scale
+mpt <- with(featureCor.df,mean(abs(cor)))
+featureCor.df %>% 
+  ggplot()+
+  geom_tile(aes(pred1,pred2,fill = abs(cor)),color="black")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=9),
+        axis.text.y = element_text(size=7))+
+  scale_fill_gradient2(low="white",high="red",midpoint=mpt)+
+  scale_x_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  scale_y_continuous(breaks=breakLocations,labels=feature.names.ord)+
+  labs(title="Correlation Heatmap",
+       x="",y="")+
+theme(axis.text.x =
+          element_text(color=ifelse(feature.names.ord %in% feature.names[forwardPreds],'red','white')))
+```
+It looks as if the Forward Selection Algorithm picks out one feature from  the main blocks of correlated features.
+
+
+# Backward Selection
+
+
+```{r}
+availPreds <- 1:numPreds
+modelPreds <- c()
+while(length(availPreds) >1){
+  allR2 <- c()
+  pred <- 1
+  for(pred in availPreds){
+    testPreds <- setdiff(availPreds,pred)
+     # data.df <- house.df[,c(augPreds,numPreds+1)]
+     #  ##the model and its summary
+     #  mod.curr <- lm(SalePrice ~ .,
+     #                 data=data.df)
+     # 
+    
+    data.df <- house.df[,c(testPreds,numPreds+1)]
+    mod <- lm(SalePrice ~ ., data=data.df)
+    mod.sum <- summary(mod)
+    allR2 <- c(allR2,mod.sum$r.squared)
+  }
+  max.id <- which.max(allR2)
+  bestPred <- availPreds[max.id]
+  ##tack the best predictor on the front
+  modelPreds <- c(bestPred,modelPreds)
+  availPreds <- setdiff(availPreds,bestPred)
+  print(sprintf("Pred Added: %s  R^2 Value: %s",bestPred,round(allR2[max.id],3)))
+}
+## Tack the last one on the front
+modelPreds <- c(availPreds,modelPreds)
+```
+Cross-validate the MSE
+
+```{r}
+allMSE <- map_dbl(1:numPreds, function(tot) 
+  mseCV(house.df[,c(modelPreds[1:tot],numPreds+1)]))
+                                                    
+###
+data.frame(numPreds=1:numPreds,MSE=allMSE) %>%
+  ggplot()+
+  geom_point(aes(numPreds,MSE))+
+  geom_line(aes(numPreds,MSE))+
+  labs(title="Backward Selection: Cross-validation",
+       subtitle="Predictors selected with maximal R^2 at each  step",
+       x="Number of Predictor")
+```
+
+
+ 1 SE Rule
+```{r}
+(predMin <- which.min(allMSE) )
+##build this model
+data.df <- house.df[,c(modelPreds[1:predMin],numPreds+1)]
+## get  both the MSE  estimate and the SE
+(mseInfo <- mseCV_SE(data.df))
+
+## add the MSE and the SE.
+mseCut <- mseInfo[1]+mseInfo[2]
+##
+(thePreds <- (1:numPreds)[allMSE < mseCut])
+
+(optNumPreds <- min(thePreds))
+(backwardPreds <- modelPreds[1:optNumPreds])
+```
+
+```{r}
+(mse.backward <- allMSE[optNumPreds])
+dictionary.df[backwardPreds,]
+```
+How do these compare
+```{r}
+forwardPreds
+backwardPreds
+```
+Very similar.
+
+And MSE
+```{r}
+c(mse.forward,mse.backward)
+```
+MSE Forward has a small advantage
+```{r}
+back.df <- house.df[,c(backwardPreds,numPreds+1)]
+forward.df <- house.df[,c(forwardPreds,numPreds+1)]
+## get  both the MSE  estimate and the SE
+(mseInfoBack <- mseCV_SE(back.df))
+(mseInfoForward <- mseCV_SE(forward.df))
+cbind(mseInfoBack,mseInfoForward)
+```
+Arguable, the forward method is producing a reliably smaller MSE. But it's close.
+
+## Lasso
+
+Set up the data
+```{r}
+numPreds <- ncol(house.df)-1
+data.x <- data.matrix(house.df[,-(numPreds+1)])
+data.y <- data.matrix(house.df[,numPreds+1])
+```
+
+
+
+We also need a grid of lambda values. It is important to remember that there is no natural scale for the lambda values. I settled on this grid after some experimentation.
+```{r lambda}
+lambda.grid <- 10^seq(-1,2,length=100)
+```
+
+
+### Cross-validation and lambda selection
+Now we can run cross-validated lasso and look at the results. 
+```{r lasso cv}
+mod.lasso.cv <- cv.glmnet(data.x,
+                          data.y,
+                          alpha=1,
+                          lambda=lambda.grid)
+
+plot(mod.lasso.cv)
+```
+From the plot, we see both the lambda with the minimal MSE and the "One SE Rule" lambd.
+
+Use the "One  SE Rule" lambda  value since it will use fewer predictors
+```{r lambda 1se}
+##lambda.opt <- mod.lasso.cv$lambda.min
+(lambda.opt <- mod.lasso.cv$lambda.1se)
+```
+
+
+### Optimal Lasso Model
+Now let's look at which of these variables are nonzero at the optimal lambda value.
+```{r optimal lasso}
+mod.lasso.opt <- glmnet(data.x,
+                    data.y,
+                    alpha=1,
+                    lambda=lambda.opt)
+```
+
+
+Grab the coefficients and drop the constant term.
+```{r coefficients}
+coefs.lasso <- data.matrix(coefficients(mod.lasso.cv,s=lambda.opt))
+coefs.lasso <- coefs.lasso[-1] ##drop constant term
+lassoPreds <- which(coefs.lasso != 0)
+```
+
+
+
+```{r}
+id <- which(mod.lasso.cv$lambda == lambda.opt)
+(mse.lasso <- mod.lasso.cv$cvm[id])
+```
+
+```{r}
+c(mse.forward,mse.backward,mse.lasso)
+```
+
+Lasso might be winning.
+```{r}
+forwardPreds
+backwardPreds
+lassoPreds
+```
+
+Lasso picks out the same predictors as the selection methods, along with a few more!
+
+## KNN
+Let's try KNN and see what happens.
+
+We aleady have scaled data from the feature heat map (feature.mat.scaled)
+```{r}
+resp <- data.matrix(house.df[,numPreds+1])
+```
+
+
+Get loose and make sure everthing works
+```{r}
+library(FNN)
+kVal <- 10
+mod.knn <- knn.reg(feature.mat.scaled,feature.mat.scaled,resp,k=kVal)
+##checki
+with(mod.knn,mean((pred-resp)^2))
+
+```
+
+Impressive, but it doesn't count since we are using the same data to train and test.
+
+Time to cros-validate
+
+```{r}
+
+knnMSE_SE <- function(kVal,numFolds=10){
+  numFolds <- 10
+  N <- nrow(feature.mat.scaled)
+  folds <- sample(1:numFolds,N,rep=T)
+  errs <- numeric(numFolds)
+  
+  for(fold in 1:numFolds){
+    train.x <- feature.mat.scaled[folds != fold,] 
+    train.y <- resp[folds != fold]
+    test.x <- feature.mat.scaled[folds == fold,] 
+    test.y <-  resp[folds == fold]  
+    knn.mod <- knn.reg(train.x,test.x,train.y,k=kVal)
+    errs[fold] <- with(knn.mod,mean((pred-test.y)^2))
+  }
+c(mean(errs),sd(errs))
+}
+
+
+knnMSE <- function(kVal,numFolds=10){ knnMSE_SE(kVal,numFolds)[1]}
+knnCV(10)
+
+maxK <- 50
+allMSE <- map_dbl(3:maxK,knnMSE)
+length(allMSE)
+
+data.frame(k=3:maxK,mse=allMSE) %>% 
+  ggplot() + 
+  geom_point(aes(k,mse))
+```
+
+Looks like the best  value is around 10
+
+```{r}
+id <- which.min(allMSE)
+(kMin <- (3:maxK)[id])
+(mseInfo <- knnMSE_SE(kMin))
+## very large SE
+mseCut <- mseInfo[1]+mseInfo[2]
+## 
+(theVals <- (3:maxK)[allMSE < mseCut])
+```
+
+According this, we will use kVal=3
+```{r}
+(k1SE <- min(theVals))
+allMSE[k1SE]
+mse <- knnMSE_SE(k1SE)
+(mse.knn <- mse[1])
+```
+
+```{r}
+c(mse.forward,mse.backward,mse.lasso,mse.knn)
+```
+Arguably, KNN wins. Keep in mind that KNN has a fairly large SE on the MSE. Still, there is something to be said for house prices are best modeled by finding the "closest" matching house ("comps" in the real estate business).
