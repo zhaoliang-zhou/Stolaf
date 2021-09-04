@@ -1,0 +1,104 @@
+---
+title: "HW8 R"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Stat 322 HW8 R problems
+
+1. We are interested in testing $H_0: \mu=60$ vs. $H_1: \mu \neq 60$. Initially, we consider a size .05 test on a random sample of size 16 from a normal distribution with $\sigma=4$ .  
+
+```{r}
+sigma <- 4
+n <- 16
+alpha <- .05
+mu0 <- 60
+mu <- seq(50,70,length=1000)
+power <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+```
+
+  a. generate a plot showing the effect of sample size on power (i.e. superimpose the graphs of three power functions representing 3 different sample sizes:$n=16, n>16,$ and $n<16$)
+     
+```{r}
+plot(mu,power,type="l")
+n <- 8
+power2 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power2,lty=2)
+n <- 32
+power3 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power3,lty=4)
+n <- 16
+```
+
+  b. generate a plot showing the effect of test size on power (i.e. superimpose the graphs of three power functions representing 3 different test sizes: $\alpha(\delta)=.05, \alpha(\delta) > .05, \alpha(\delta) < .05$)
+
+```{r}
+plot(mu,power,type="l")
+alpha <- .10
+power2 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power2,lty=2)
+alpha <- .01
+power3 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power3,lty=4)
+alpha <- .05
+```
+     
+  c. generate a plot showing the effect of standard deviation on power (i.e. superimpose the graphs of three power functions representing 3 different standard deviations: $\sigma=4, \sigma=4, \sigma=4$)
+     
+```{r}
+plot(mu,power,type="l")
+sigma <- 8
+power2 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power2,lty=2)
+sigma <- 2
+power3 <- 1 - pnorm(qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma) +
+  pnorm(-qnorm(1-alpha/2,0,1) + (mu0-mu)*sqrt(n)/sigma)
+lines(mu,power3,lty=4)
+sigma <- 4
+
+
+```
+
+2. Based on the description for Exercise 9.1.3:
+  a. Sketch the power function described in (a).
+```{r}
+p <- seq(0,1,by=.01)
+power <- 1 - pbinom(6,size=20,prob=p) + pbinom(1,size=20,prob=p)
+plot(p,power,type="l")
+```
+     
+  b. If we desire a level .05 test for $H_0: p=0.2$ vs $H_1: p>0.2$, define the appropriate critical region.  What is the size of this test?
+```{r}
+y <- 1:20
+probtype1error <- 1 - pbinom(y-1,size=20,prob=.20)
+cbind(y,probtype1error)
+```
+Reject Ho if Y>=8; size of test = .032
+
+3. Duplicate the two plots in Figure 9.12 (p. 580)'
+```{r}
+psi <- seq(0,6,length=1000)
+alpha <- .05
+degfr <- c(1,2,3,5,10,60)
+power <- 1 - pt(qt(1-alpha,df=degfr[1]),df=degfr[1],ncp=psi)
+plot(psi,power,type="l",ylim=c(0,1))
+for (i in 2:6)  {
+  power <- 1 - pt(qt(1-alpha,df=degfr[i]),df=degfr[i],ncp=psi)
+  lines(psi,power,lty=i)  }
+
+alpha <- .01
+degfr <- c(1,2,3,5,10,60)
+power <- 1 - pt(qt(1-alpha,df=degfr[1]),df=degfr[1],ncp=psi)
+plot(psi,power,type="l",ylim=c(0,1))
+for (i in 2:6)  {
+  power <- 1 - pt(qt(1-alpha,df=degfr[i]),df=degfr[i],ncp=psi)
+  lines(psi,power,lty=i)  }
+```
+

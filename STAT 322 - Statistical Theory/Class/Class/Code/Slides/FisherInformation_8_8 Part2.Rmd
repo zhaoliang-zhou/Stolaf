@@ -1,0 +1,68 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+# 8.8 Fisher Information: Part 2
+
+Assuming $X\sim N(\mu,\sigma^2)$ where $\sigma^2$ is known, $I(\theta)=\frac{1}{\sigma^2}$
+
+$Var_{\mu}=\sigma^2$ so as $Var(X)$ increases, $I(\theta)$ decreases.
+
+$I(\theta)$ measures the information about a parameter that a random variable contains.
+
+## Theorem 8.8.2
+$$I_n(\theta)=nI(\theta)$$ 
+
+$I_n(\theta)$ is the information in the entire sample, where $I(\theta)$ is the information in a single observation.
+
+## Question
+How can we use $I_n(\theta)$ to evaluate estimates like $\bar{X}_n$?  
+
+# Cramer-Rao Lower Bound (CRLB)
+For any arbitrary estimator of $\theta, T=r(x)$ the **Cramer-Rao** (information) Inequality States:
+
+$$Var_{\theta}(T)\geq \frac{m'(\theta)^2}{nI(\theta)}$$
+
+where $m(\theta)=E_\theta(T)$
+
+So for an unbiased estimator $m(\theta)=\theta$ and $Var_{\theta}(T)\geq \frac{1}{nI(\theta)}$ 
+
+No unbiased estimator of $\theta$ can have lower variance than the CRLB.
+
+## If equality is achieved in the inequality T is said to be an efficient esitmator.
+
+Minimum Variance Unbiased Estimators (MVUE)
+
+#Example
+
+Assume $X_1,...,X_n\sim N(\mu, \sigma^2)$ where $\sigma^2$ is known, and
+
+$\alpha_1X_1+\alpha_2X_2 +...+\alpha_nX_n$ is unbiased for $\mu$ if $\sum \alpha_i=1$
+
+$$\begin{aligned}
+\lambda(x|\mu)' &= \frac{(x-\mu)}{\sigma}\\
+\lambda''*x|\mu) & = \frac{-1}{\sigma^2}\\
+I(\mu) & = \frac{1}{\sigma^2}\\
+\end{aligned}$$
+
+Thus CRLBR$=\frac{1}{nI(\mu)}=\frac{1}{n/\sigma^2}=\frac{\sigma^2}{n}$
+
+$Var[\bar{X}_n]=\frac{\sigma^2}{n}=CRLB$!
+
+So the sample mean is an unbiased esitmator of $\mu$ with the minimum variance.
+
+# Theorem 8.8.3 (continued)
+
+T will be an efficient estimator if and only if there exist functios $u(\theta)$ and $v(\theta)$ that may depends on $\theta$ but not $X_1,...,X_n$ and that satisfy the relation
+
+$$T=u(\theta)\lambda'_n(x|\theta)+v(\theta)$$
+
+## Example
+
+$T=\bar{X}_n$ 
+
+$$\bar{X}_n=u(\mu)\sum \left(\frac{x_i-\mu}{\sigma}\right) + v(\mu)$$
+
+where $u(\mu)=\frac{\sigma}{n}$ and $v(\mu)=\mu$

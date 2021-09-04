@@ -1,0 +1,184 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+```{r,include=FALSE}
+library(mosaic)
+```
+
+# 9.1 (continued) P-value
+
+P-value: The smallest level $\alpha_0$ such that we would reject the null hypothesis at a level $\alpha_0$ with the observed data.
+
+If $\delta=$ Reject $H_0$ when $T\geq c$
+($\delta_t:$ test that rejects $H_0$ if $T\geq t$.
+
+$$\mbox{pvalue}=\sup_{\theta \in \Omega_0}\pi(\theta|\delta_t)=\sup_{\theta \in \Omega_0}Pr(T\geq t|\theta)$$
+
+## Bernoulli Example
+
+If we observe $Y=8$ then 
+$$\begin{aligned}
+\mbox{pvalue} &=\sup_{p \leq .3}Pr(Y\geq 8|p)\\
+&= Pr(Y\geq 8|p=.3)\\
+&= 0.0016\\
+\end{aligned}$$
+
+# Equivalence of Hypthesis test and Confidence Intervals
+
+A coefficient $\gamma$ confidence set can be thought of as a set of $H_0$s that would be accepted at significance level $1-\gamma$.
+
+## Example 9.1.15
+
+
+Coefficient $\gamma$ Confidence Interval:
+
+$$\left(\bar{X}_n \pm c \sigma'/\sqrt{n} \right)$$
+
+where $c$ is the $\frac{1+\gamma}{2}$ quantile of $t_{n-1}$ distribution.
+
+# Normal CIs
+We can use the CI to find a level $\alpha_0=1-\gamma$ test of $H_0:\mu=\mu_0; H_A:\mu \neq \mu_0$
+
+Reject $H_0$ if $\mu_0 \notin \left(\bar{X}_n \pm c \sigma'/\sqrt{n} \right)$
+
+Which is equivalent to $\left(|\bar{X}_n-\mu_0| \geq \pm c \sigma'/\sqrt{n} \right)$
+
+Or $$ \Big| \frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}\Big| \geq c$$
+
+Which looks like a t-test!
+
+# Chapter 9.5 The t-test
+
+Again, consider $X_1...,X_n \sim N(\mu,\sigma^2)$ with $\mu,\sigma^2$ unknown.
+
+$$H_0:\mu \leq \mu_0; \{\Omega_0: \mu \leq \mu_0 \ \mbox{and}\  \sigma^2>0\}$$
+$$H_A:\mu > \mu_0; \{\Omega_1: \mu > \mu_0 \ \mbox{and}\  \sigma^2>0\}$$
+
+Reject $H_0$ if $U\geq c$ where $U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}$ and $c=T'_{(n-1)(1-\alpha_0)}$ since $U\sim t_{(n-1)}$ when $H_0:\mu=\mu_0$ is true.
+
+# Example TV Radition
+
+It's 1980 and we are interested in measuring the radiation level of TV displays in a department store. The safety limit established by the [FDA](https://www.fda.gov/radiation-emitting-products/resources-you-radiation-emitting-products/television-radiation#6) is 0.5 milliroentgen per hour (mR/hr).  We collect data.
+
+$$\begin{aligned}
+n&=10\\
+\bar{x}_n&=0.52\\
+\sigma'&=.241
+\end{aligned}$$
+
+## Confidence Interval for $\mu$
+
+$$\bar{x}_n \pm t^{-1}_{(n-1)}(.975)\sigma'/\sqrt{n}$$
+$$.52 \pm 2.2622 \times .241/\sqrt{10}$$
+$$(0.35,0.69)$$
+
+# Hypothesis Test for TV radiation
+
+$H_0:\mu \leq 0.50$ assume safe levels vs $H_1:\mu > 0.5$
+
+$U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}=\frac{.52-.50}{.241/\sqrt{10}}=.26$
+
+Reject $H_0$ if $U>t^{-1}_{(9)}(.95)=1.833$
+
+$$\begin{aligned}
+\mbox{p-value} &=\sup_{\mu \leq 0.50}P(U\geq.26|\mu)\\
+&=P(U \geq .26|\mu=0.50)=.40\\
+\end{aligned}$$
+
+Do not Reject $H_0$.  No significant evidence that unsafe levels exist.
+
+```{r}
+qt(.975,9)
+1-pt(.26,9)
+```
+
+# Assumptions 
+
+* Population is Normally Distributed
+* Random sample (iid)
+* Normal distribution (or n is "large enough")
+
+## Question
+How much power did this test have to reject $H_0$ when, say, $\mu=0.60$?
+
+In general, was this test powerful enough to detect meaningful safety violations?
+
+test statistic: $U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}} \sim t_{(n-1)}$ if $H_0:\mu=\mu_0 \ \mbox{is true}$
+
+But $U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}} \not \sim t_{(n-1)}$ if $H_0$ is false. 
+
+# Non-Central t-distribution
+
+Definition (9.5.1): If $Y$ and $W$ are independent random variables, with $W\sim N(\psi,1)$ and $Y\sim \chi^2_{(m)}$, then the distribution of $$X=\frac{W}{\sqrt{Y/m}}$$ is called a non-central t distribution with $m$ degrees of freedom and non-centrality parameter $\psi$
+
+## Consider U when $H_0$ is false.
+
+$$\begin{aligned}
+U&=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}= \frac{\frac{\bar{X}_n-\mu_0}{\sigma/\sqrt{n}}}{\sqrt{\frac{(n-1)\sigma'^2}{\sigma^2}/(n-1)}}\\
+&=\frac{\frac{\bar{X}_n-\mu}{\sigma/\sqrt{n}}+\frac{\mu-\mu_0}{\sigma/\sqrt{n}}}{\sqrt{\frac{\chi^2_{(n-1)}}{(n-1)}}}=\frac{N(\psi,1)}{{\sqrt{\chi^2_{(n-1)}/(n-1)}}}\sim t_{(n-1),\psi}
+\end{aligned}$$
+
+# Calculating Power
+
+Then the power at $\mu$ is 
+$$1-T_{(n-1)(c | \psi)}=\int_{1.833}^{\infty} f_T(t)dt$$ 
+
+* $P(X\leq t)=T_{n}(t|\psi)$ 
+
+* $c=$ critical value
+
+* Reject $H_0$ if $U\geq c=1.833$
+
+* $\psi=\frac{\mu-\mu_0}{\sigma/\sqrt{n}}=\frac{.60-.50}{\sigma/\sqrt{10}}$
+
+## But we need $\sigma$...
+
+# Power Using Non-Central t
+
+1. Find power at $\mu=.6$ assuming $\sigma=s$ (sample standard deviation)
+2. Find power as a function of effect size in standard deviations (express $\mu$ in terms of $\sigma$ and $\mu_0$)
+3. Assuming $\mu=\mu_0+1\times \sigma$, plot the following
+     a. Power vs $\psi$
+     b. Power vs $n$
+     
+
+# Find power at $\mu=.6$ assuming $\sigma=s$ (sample standard deviation)
+
+```{r}
+psi=(.6-.5)/(.241/sqrt(10))
+1-pt(1.833,df=9,ncp=psi)
+```
+
+# Find power as a function of effect size in standard deviations (express $\mu$ in terms of $\sigma$ and $\mu_0$)
+
+```{r}
+psi=1*sqrt(10)
+1-pt(1.833,df=9,ncp=psi)
+```
+
+# Bad plot trying to look at different number of SDs away from null
+```{r,echo=FALSE,warning=FALSE}
+k=c(seq(-2,2,by=.5))
+psi=k*sqrt(10)
+power=1-pt(1.833,df=9,ncp=psi)
+plot(power~k)
+
+```
+
+# Assuming $\mu=\mu_0+1\times \sigma$: Power vs $\psi$
+
+```{r}
+n=c(seq(3,50,by=1))
+psi=.5*sqrt(n)
+power=1-pt(1.833,df=(n-1),ncp=psi)
+plot(power~psi)
+```
+
+# Power vs n
+```{r}
+plot(power~n)
+```
+
+

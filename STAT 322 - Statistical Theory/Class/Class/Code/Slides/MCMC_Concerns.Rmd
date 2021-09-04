@@ -1,0 +1,60 @@
+---
+title: "12.5 Markov Chain Monte Concerns and Issues"
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+# MCMC Concerns
+
+1. Are we getting coverage of the entire joint distribution?
+2. Will we always get the same answer regardless of the arbitrarily chosen starting values?
+3. How large should our sample size be?
+4. Does the iid assumption conflict with MCMC methods?
+
+# Burn-in length
+
+If chains have converged then means from chains of equal lengths should be equal (sample size of $m$ from $k$ identical distributions -- independent Markov Chains)
+
+$H_0:\mu_1=...\mu_k$ vs $H_1$: not all $\mu_i$s are equal $\rightarrow$ ANOVA F-test
+
+F-test: F= (Var between groups)/(Var within groups)
+
+mean/median differences are the same, more statistically significant evidence of the true mean difference if variances are small within groups.
+
+* F=same/little=Big: Evidence of differences among means (Reject null)
+* F=same/lots=Small
+* F near 1: Means same, do not reject null
+
+# Starting Value/Chain Length
+
+- Can try different starting values -- but also consider burn-in length.  With a long enough burn-in starting values become less relevant.
+
+- Adjust chain length to investigate convergence properties.  We want to make simulation error as small as desired.
+
+# Dependence
+
+- We have positive correlation in our sample
+- Using MCMC one sample's dependence in on the previous sample
+- This type of dependence is fairly regular.  Theorems guarantee convergence of averages and even normality
+
+Goal: Estimate the the mean $\mu$ of function $h(x_1,x_2)$ based on $m$ observations from the Markov chain.  $1/m \sum h(x_1^{(i),x_2^{(i)}} \rightarrow \mu$
+
+- Convergence is slower than for the iid case.  Estimated variance will be smaller than true $\sigma^2$.
+
+- Use $k$ independent Markov chains.  Discard burn-in, and continue to sample for $m$ more iterations.
+
+# Other MCMC Concerns
+
+1. What if we don't know $\xi(\mu,\tau|x)$ of if it's not simple?
+2. What if we don't know all conditional distributions?
+
+- Computation based solutions (WinBugs and R implementation)
+
+# Sampling Distributions
+
+- What if $n$ is small or population is highly skewed?  
+- What if statistic of interest has unknown sampling distribution? (median, IQR, percentile, etc.)
+
+## Next -- Bootstrap for these sorts of situations.
+

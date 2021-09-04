@@ -1,0 +1,174 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+```{r,include=FALSE}
+library(mosaic)
+```
+
+# 9.1 Testing Hypotheses: Uniform Example
+
+$$X\sim Unif(0,\theta)$$
+
+We want to test
+
+$$H_0:\theta \geq 2$$
+$$H_A:\theta<2$$
+
+with $\alpha_{\theta}=0.10$ based on a random sample of size 8. We'll base our test on $\hat{\theta}_{MLE}=max(X_1,...,X_8)=X_{(8)}$.  We want to find $\pi(\theta|\delta)$.
+
+Reject $H_0$ if $X_{(8)}\leq C$ (since we are looking for evidence that $\theta < 2$). 
+
+We want Pr(Reject $H_0|H_0$ true)=.10 or $Pr(X_{(8)}\leq C|\theta=2)=.10$
+
+# Finding the pdf for an order statistic
+
+First we need the pdf for $X_{(8)}$.  Begin with cdf of $X_{(8)}$.
+
+
+$$\begin{aligned}
+F_{X_{(8)}}(x)&=\left[ Pr(X\leq x)\right]^8\\
+f_{X_{(8)}}(x) &= 8 F(x)^{n-1}f(x)\\
+& = 8 \left(\frac{x}{\theta}\right)^7\frac{1}{\theta}\\
+& = \frac{8\theta^7}{\theta^8}\\
+\end{aligned}$$
+
+If $\theta=2$ then $f_{X_{(8)}}(x)=\frac{1}{32}x^7$ for $0\leq x \leq 2$.
+
+# Finding the Critical Region
+So 
+$$\begin{aligned}Pr(X_{(8)}\leq C|H_0 \mbox(true)=.10 & \rightarrow \int_0^c\frac{1}{32}x^7dx=.10\\
+&\rightarrow \frac{1}{256} x^8 \Big|_0^c\\
+& \rightarrow c=(256)^{1/8}=1.50
+\end{aligned}$$
+
+So the Critical Region (Rejection Region) is $\{x:x_{(8)}\leq 1.50\}$.
+
+# What is the power of the test when $\theta=1.7$?
+
+$$Pr(\mbox{Reject} H_0|\theta=1.7) = \int_0^{1.5} \frac{8}{1.7^8}x^7dx=$$
+
+```{r,echo=FALSE}
+theta=1.7
+myf<-function(x){x^7}
+val<-integrate(myf, 0, 1.5)$value
+8/theta^8*val
+```
+
+```{r,echo=FALSE}
+theta<-c(1.5,1.6,1.7,1.8,1.9,2.0,2.1)
+val<-integrate(myf, 0, 1.5)$value
+y<-8/theta^8*val
+y
+```
+
+|$\theta$|Power|
+|---|--------|
+|1.5| 1.00 |
+|1.6| 0.597|
+|1.7| 0.367|
+|1.8| 0.233|
+|1.9| 0.151|
+|2.0| 0.100|
+|2.1| 0.068|
+
+# Plot of Power vs $\theta$
+
+```{r,echo=FALSE,fig}
+
+plot(y~theta,type="l")
+abline(h=.1,lty=3)
+```
+
+# Normal Example
+
+$X\sim N(\mu,\sigma^2)$ with $\sigma^2$ known.
+
+$$H_0:\mu=\mu_0; H_A:\mu \neq \mu_0$$
+
+$\pi(\mu|\delta)=Pr(\mbox{Reject} \ H_0|\mu)$
+
+Let $\delta$ be the test that rejects when $|Z|>1.96$
+\small
+$$\begin{aligned}
+&= Pr\left(\frac{\bar{X}_n-\mu_0}{\sigma/\sqrt{n}}>1.96|\mu\right)+Pr\left(\frac{\bar{X}_n-\mu_0}{\sigma/\sqrt{n}}<-1.96|\mu\right)\\
+&= Pr\left(\bar{X}>\mu_0+1.96\times \sigma/\sqrt{n}|\mu\right)+Pr\left(\bar{X}<\mu_0-1.96\times \sigma/\sqrt{n}|\mu\right)\\
+&= Pr\left(Z>\frac{\mu_0+1.96\times \sigma/\sqrt{n}-\mu}{\sigma/\sqrt{n}}\right)+Pr\left(Z<\frac{\mu_0-1.96\times \sigma/\sqrt{n}-\mu}{\sigma/\sqrt{n}}\right)\\
+&= Pr\left(Z>\frac{\mu_0-\mu}{\sigma/\sqrt{n}}+1.96\right)+Pr\left(Z<\frac{\mu_0-\mu}{\sigma/\sqrt{n}}-1.96\right)
+\end{aligned}$$
+
+\normalsize
+
+# Bernoulli Example (Example 9.1.9)
+
+$$X_1,...,X_{10}\sim \mbox{Bernoulli}(p)$$
+
+$$H_0:p \leq .3$$
+$$H_A:p >.3$$
+Test statistic: $Y=\sum X_i \rightarrow$ Reject $H_0$ if $Y>C$ where 
+$$Y\sim Binomial(n,p); \ n=10$$
+
+# Size of Binomial Test
+
+$$\alpha(\delta)=\sup_{p \in \Omega_0}\pi(p|\delta)=\sup_{p in \Omega_0} Pr(Y\geq c|p) = Pr(Y\geq c|p=0.3)$$
+In general $Pr(Y=y|p=.3)= {10 \choose y}.3^{y}.7^{10-y}$
+$$\begin{aligned}
+Pr(Y=10|p=.3)&= {10 \choose 10}.3^{10}.7^{0} = 0.0000059\\
+Pr(Y=9|p=.3)&= {10 \choose 9}.3^{9}.7^{1}= 0.00014\\
+\end{aligned}$$
+
+# Using R
+```{r}
+y=seq(5,10)
+d=dbinom(y,10,.3)
+p=1-pbinom(y-1,10,.3)
+cbind(y,d,p)
+```
+
+In order to keep the size of the test to at most .1 (or 0.05 for that matter) we must choose c>5.
+
+# P-value
+
+P-value: The smallest level $\alpha_0$ such that we would reject the null hypothesis at a level $\alpha_0$ with the observed data.
+
+If $\delta=$ Reject $H_0$ when $T\geq c$
+($\delta_t:$ test that rejects $H_0$ if $T\geq t$.
+
+$$\mbox{pvalue}=\sup_{\theta \in \Omega_0}\pi(\theta|\delta_t)=\sup_{\theta \in \Omega_0}Pr(T\geq t|\theta)$$
+
+## Bernoulli Example
+
+If we observe $Y=8$ then 
+$$\begin{aligned}
+\mbox{pvalue} &=\sup_{p \leq .3}Pr(Y\geq 8|p)\\
+&= Pr(Y\geq 8|p=.3)\\
+&= 0.0016\\
+\end{aligned}$$
+
+# Equivalence of Hypthesis test and Confidence Intervals
+
+A coefficient $\gamma$ confidence set can be thought of as a set of $H_0$s that would be accepted at significance level $1-\gamma$.
+
+## Example 9.1.15
+
+$X_1...,X_n \sim N(\mu,\sigma^2)$ with $\mu,\sigma^2$ unknown.
+
+$$H_0:\mu \leq \mu_0; \{\Omega_0: \mu \leq \mu_0 \ \mbox{and}\  \sigma^2>0\}$$
+$$H_A:\mu > \mu_0; \{\Omega_1: \mu > \mu_0 \ \mbox{and}\  \sigma^2>0\}$$
+Coefficient $\gamma$ Confidence Interval:
+
+$$\left(\bar{X}_n \pm c \sigma'/\sqrt{n} \right)$$
+
+where $c$ is the $\frac{1+\gamma}{2}$ quantile of $t_{n-1}$ distribution.
+
+# Normal CIs
+We can use the CI to find a level $\alpha_0=1-\gamma$ test of $H_0:\mu=\mu_0; H_A:\mu \neq \mu_0$
+
+Reject $H_0$ if $\mu_0 \notin \left(\bar{X}_n \pm c \sigma'/\sqrt{n} \right)$
+
+Which is equivalent to $\left(|\bar{X}_n-\mu_0| \geq \pm c \sigma'/\sqrt{n} \right)$
+
+Or $$ \Big| \frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}\Big| \geq c$$
+
+Which looks like a t-test!

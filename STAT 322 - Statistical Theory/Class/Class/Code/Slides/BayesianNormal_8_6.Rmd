@@ -1,0 +1,118 @@
+---
+title: "Bayesian Analysis of Samples from a Normal Distribution"
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# 8.6 Bayesian Analysis of Samples from a Normal Distribution
+Consider $X_1,...,X_n \overset{iid}{\sim} N(\mu,\sigma^2)$ with $\mu, \sigma^2$ unknown.  
+
+
+$U=\frac{\bar{X_n}-\mu_0}{s/\sqrt{n}}\sim t_{(n-1)}$ gives us the Frequentist approach.
+
+
+## So how would a Bayesian approach this problem?
+
+# First, we need a likelihood:
+
+$$f_n(x,\mu,\tau)=\big(\frac{\tau}{2\pi}\big)^{n/2} \exp{\{\frac{\tau}{2}\sum_{i=1}^n(x_i-\mu)^2\}}$$
+
+($\tau=1/\sigma^2$, precision)
+
+## Prior for $\mu$ and $\tau$: $\xi(\mu,\tau) = ??$
+
+# So, we need a joint distribution to make inferences for $\mu$ and $\sigma^2$ jointly.  Can we find a conjugate family of priors?
+
+Well.. yes.
+
+Normal*gamma
+
+Joint distribution = conditional*marginal
+
+$$\xi(\mu,\tau)=\xi_1(\mu|\tau)\times \xi_2(\tau)$$
+
+Where $\xi_1(\mu|\tau)\sim Normal$ and $\xi_2(\tau)\sim Gamma$
+
+$$\xi_1(\mu|\tau)\sim N(\mu_0,\lambda_0\tau)$$
+
+$$\xi_2(\tau)\sim gamma(\alpha_0,\beta_0)$$
+
+(i.e. $\xi(\sigma^2)\sim$ Inverse Gamma)
+
+$$\xi(\mu,\tau|x)=\xi_1(\mu|\tau,x)\times\xi_2(\tau|x)$$ (joint posterior)
+
+# Theorem 8.6.1, p496
+
+If the above is assumed: 
+
+$$\xi_1(\mu|\tau,x)\sim N(\mu_1,\lambda_1\tau)$$ 
+
+and 
+
+$$\xi_2(\tau|x)\sim gamma(\alpha_1,\beta_1)$$
+
+Prior: Normal-gamma with hyperparameters $\mu_0,\lambda_0,\alpha_0,\beta_0$
+
+Posterior: Normal-gamma with hyperparameters $\mu_1,\lambda_1,\alpha_1,\beta_1$
+
+Note: $\mu$ and $\tau$ are **NOT** independent
+
+
+# Posterior Parameters
+
+$$\mu_1=\frac{\lambda_0\mu_0+n\bar{x}_n}{\lambda_0+n}$$
+
+$$\lambda_1=\lambda_0+n$$
+
+$$\alpha_1=\alpha_0+n/2$$
+
+$$\beta_1=\beta_0+ \frac{1}{2}S^2_n+\frac{n\lambda_0(\bar{x}_n-\mu_0)^2}{2(\lambda_0+n)}$$
+
+<!-- ($S_n^2=\sum_{i=1}^n(x_i-\bar{x})^2$) -->
+
+
+# Interpretations: 
+$$\mu_1=\frac{\lambda_0}{\lambda_0+n}\mu_0+\frac{n}{\lambda_0+n}\bar{x}_n$$
+
+| | |
+|------------:|:---------------------|
+| $\mu_0$ | prior estimate of the mean|
+| $\lambda_0$| Amount of information abut the mean |
+|  | (e.g. $\lambda_0=5$ you have about as much information as contained in a sample of size 5)|
+|$\frac{\lambda_0}{\lambda_0+n}$ | fraction of information in prior|
+|$\frac{\beta_0}{\alpha_0}$| Prior estimate of the variance|
+|$2\alpha_0$ | amount of prior info about variance|
+
+# Goal: conditional distribution
+$\xi(\mu|x)=??$
+
+Show (in groups)
+
+1. if $Y=2\beta_0\tau$ then $Y\sim\chi^2_{2\alpha_0}$ (Use exercise 5.7.1)
+2. $U=\sqrt{\frac{\lambda_0\alpha_0}{\beta_0}} \left( \mu-\mu_0 \right) \sim t_{2\alpha_0}$
+3. If $U=\sqrt{\frac{\lambda_0\alpha_0}{\beta_0}} \left( \mu-\mu_0 \right) \sim t_{2\alpha_0}$ find $E(\mu)$ and $Var(\mu)$
+4. If $U=\sqrt{\frac{\lambda_0\alpha_0}{\beta_0}} \left( \mu-\mu_0 \right) \sim t_{2\alpha_0}$ find 95% CI (credible interval) for $\mu$.
+
+## (Key outline posted on Moodle)
+
+# All of the previous statements (1-4) are also true for the posterior distribution
+
+1. if $Y=2\beta_1\tau$ then $Y\sim\chi^2_{2\alpha_1}$ 
+
+2. $U=\sqrt{\frac{\lambda_1\alpha_1}{\beta_1}} \left( \mu-\mu_1 \right) \sim t_{2\alpha_1}$
+
+3.$E(\mu|\underline{x})=\mu_1$ and $Var(\mu|\underline{x})=\frac{\beta_1}{\lambda_1(\alpha_1-1)}$
+
+4. 95% CI (credible interval) for $\mu|\underline{x}$ is $$\left(\frac{t_{2\alpha_1,.025}}{\sqrt{\frac{\lambda_1\alpha_1}{\beta_1}}}+\mu_1,\frac{t_{2\alpha_1,.97
+5}}{\sqrt{\frac{\lambda_1\alpha_1}{\beta_1}}}+\mu_1 \right).$$
+
+## Note for HW: 
+
+$$\Gamma(r)=(r-1)\Gamma(r-1)$$
+
+$$\Gamma(\frac{3}{2})=\frac{1}{2}\Gamma{\frac{1}{2}}$$
+
+$$\Gamma(\frac{1}{2})=\pi$$
+

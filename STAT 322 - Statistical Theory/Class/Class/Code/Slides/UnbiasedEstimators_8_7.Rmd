@@ -1,0 +1,123 @@
+---
+title: "8.7 Unbiased Estimators"
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+# Unbiased Estimators -- Variance Example
+
+Consider two estimators of $\sigma^2$
+
+1. $\hat{\sigma}^2=\frac{1}{n}\sum(X_i-\bar{X}_n)^2$ the MLE
+
+2. $\hat{\sigma'}^2=\frac{1}{n-1}\sum(X_i-\bar{X}_n)^2$ our "usual" variance estimator.
+
+\hspace{5mm}
+## Definition
+
+An estimator $\delta(X_1,...X_n)$ is an unbaised estimator of a parameter $\theta$ if 
+
+$$E_{\theta}\left[\delta(X_1,...,X_n)\right]=\theta \hspace{5mm} \forall \theta$$
+
+# Examples
+
+1. $X_1, ...X_n \sim^{iid}N(\theta,\sigma^2)$ where $\sigma^2$ known.
+Is $\bar{X}_n$ unbiased for $\theta$?
+
+$$ E[\bar{X}_n]=E[\frac{1}{n}\sum X_i=...$$
+
+
+2. $X_1, ...X_n$ come from a distribution with unknown mean $\mu$ and unknown variance $\sigma^2$.  is $\hat{\sigma}^2_{MLE}$ unbiased for $\sigma^2$?
+
+$$E[\hat{\sigma}^2_{MLE}]=E[\frac{1}{n}\sum(X_i-\bar{X}_n)^2]=...$$
+
+# Some helpful properties
+
+1. $Var(X_i)=E(X_i^2)-E(X_i)^2$
+2. $Var(\bar{X}_n)=Var(\frac{1}{n}\sum{X_i})$
+3. $E(\bar{X}_n^2)=Var(\bar{X}_n)+E(\bar{X}_n)^2$
+
+# Brief Solution
+
+## Example 1
+1. $X_1, ...X_n \sim^{iid}N(\theta,\sigma^2)$ where $\sigma^2$ known.
+Is $\bar{X}_n$ unbiased for $\theta$?
+
+
+$$\begin{aligned}
+E[\bar{X}_n] & = E[\frac{1}{n}\sum X_i] \\
+  & = \frac{1}{n}E[\sum X_i] \\
+  & = \frac{1}{n}\sum E[X_i] \\
+  & = \frac{1}{n} n \theta \\
+  & = \theta
+\end{aligned}$$ 
+
+# In Conclusion
+
+## So, YES!, $\bar{X}_n$ is unbiased for the mean.  
+
+(Recall that you can show $E[X_1]=\theta=\int{xf(x)dx}$ or by using moment generating functions.)
+
+## In fact $\bar{X}_n$ is an unbiased estimator for $\mu$ for any random sample $X_1, ...X_n$ from any distribution with unknown mean $\mu$ (a function of $\theta$).
+
+# Example 2
+
+2. $X_1, ...X_n$ come from a distribution with unknown mean $\mu$ and unknown variance $\sigma^2$.  is $\hat{\sigma}^2_{MLE}$ unbiased for $sigma^2$?
+
+$$\begin{aligned}
+E[\hat{\sigma}^2_{MLE}]& =E\left[\frac{1}{n}\sum(X_i-\bar{X}_n)^2\right]\\
+  & = \frac{1}{n}E\left[\sum(X_i-\bar{X}_n)^2\right] \\
+  & = E\left[\frac{1}{n}\sum(X_i^2-2\bar{X}_nX_i+\bar{X}_n^2)\right] \\
+  & = E\left[\frac{1}{n}\sum(X_i^2\right]-E\left[\frac{2}{n}\bar{X}_n\sum X_i\right]+E\left[\frac{1}{n}n \bar{X}_n^2\right] \\
+  & = \frac{1}{n}E\left[\sum X_i^2\right]-E\left[2\bar{X}_n^2\right]+E\left[\bar{X}_n^2\right] \\
+  & = \frac{1}{n}E\left[\sum X_i^2\right]-E\left[\bar{X}_n^2\right] \\
+  & = \frac{1}{n}\sum E\left[X_i^2\right]-E\left[\bar{X}_n^2\right] \\
+\end{aligned}$$ 
+
+# Employing some of the helpful properties
+
+1. $Var(X_i)=E(X_i^2)-E(X_i)^2 \rightarrow E(X_i^2)=Var(X_i)+E(X_i)^2$
+2. $Var(\bar{X}_n) = Var(\frac{1}{n}\sum{X_i})=\frac{1}{n^2}Var\sum{X_i}= \frac{1}{n^2}\sum \sigma^2= \frac{\sigma^2}{n}$
+3. $E(\bar{X}_n^2)=Var(\bar{X}_n)+E(\bar{X}_n)^2=\frac{\sigma^2}{n} + \mu^2$
+
+So
+$$\begin{aligned}
+ \frac{1}{n}\sum E\left[X_i^2\right]-E\left[\bar{X}_n^2\right] &= \frac{1}{n}\sum \left[Var(X_i)+E(X_i^2)\right]-\frac{\sigma^2}{n}-\mu^2\\
+ &= \frac{1}{n}\left[n \sigma^2 + n\mu^2\right]-\frac{\sigma^2}{n}-\mu^2\\
+ & = \sigma^2+\mu^2-\frac{\sigma^2}{n}-\mu^2\\
+ & =\frac{n-1}{n}\sigma^2\\
+\end{aligned}$$
+
+So $E\left[\frac{n}{n-1}\hat{\sigma}^2\right]=E\left[\frac{\sum(X_i-\bar{X}_n)^2}{n-1}\right]=\sigma^2$
+
+## Great news.  Our usual estimate of the variance is unbiased!
+
+# In conclusion
+
+- $\hat{\sigma}^2$ is not an unbiased estimator of $\sigma^2$.  The limit does go to $\sigma^2$, so the MLE is *asymptotocally unbiased*.  
+
+- $\hat{\sigma'}^2$ is an unbiased estimator for $\sigma^2$
+
+## Unbiasedness is only one quality of an estimator
+
+Consider $X_1, ...X_n \sim^{iid}N(\theta,\sigma^2)$ where $\sigma^2$ is know.
+
+$$E[X_1]=\mu; E[\bar{X}_n]=\mu$$
+
+$$Var[X_1]=\sigma^2; Var[\bar{X}_n]=\frac{\sigma^2}{n}$$
+
+Unbiasedness only tells you where you end up on average, not anything about the sampling distribution or the precision of your estimate.
+
+Ideally an estimator would be unbaised and have small variance.  
+
+# Definition: Mean Square Error (MSE)
+
+$$\begin{aligned}
+MSE&=E[(\delta-\theta)^2]\\
+&=E[(\delta-\theta)]^2+Var(\delta)\\
+&=Bias^2+Var(\delta)\\
+\end{aligned}$$
+
+Later we'll talk about the bias-variance trade off.  However,  if we consider the variance estimate $\frac{\sum(X_i-\bar{X}_n)^2}{n+1}$ this esitmator minimizes the MSE.
+

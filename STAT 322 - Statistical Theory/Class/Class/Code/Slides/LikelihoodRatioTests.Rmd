@@ -1,0 +1,87 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+```{r,include=FALSE}
+library(mosaic)
+```
+
+# 9.1 and 9.5 Likelihood Ratio Test
+
+
+Recall our t-test example.  We reject $H_0$ if $|U|=\Big| \frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}\Big| \geq c$
+
+Our test statistic: $U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}} \sim t_{(n-1)}$ if $H_0:\mu=\mu_0$ is true.
+
+But $U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}} \sim t_{(n-1),\psi}$ if $H_0$ is false.
+
+Where $\psi=\frac{\mu-\mu_0}{\sigma/\sqrt{n}}$ and $\mu$ is the true mean.
+
+
+## Is the one sample t-test optimal in any sense?
+
+We covered many properties of parameter etimates/estimators that are desirable (maximum likelihood, sufficiecy, efficiency, unbiasedness, etc).  Are there similar ways we can evaluate test-procedures?
+
+# Evaluating Test Procedures
+
+Let's consider a general framework for suggesting and evaluating test procedures (minimize Type II for fixed Type I error).
+
+$$H_0:\theta \in \Omega_0$$
+$$H_A:\theta \in \Omega_1$$
+
+The likelihood function is highest near true values of $\theta$.  We will consider tests based on the likelihood function $f_n(x|\theta)$.  
+
+So if the likelihood function is greater for values of $\theta$ under $H_1$ vis a via $H_0$ we should reject $H_0$.  
+
+If $sup_{\theta \in \Omega_1}f_n(x|\theta) > \sup_{\theta \in \Omega_0}f_n(x|\theta)$ then we should reject $H_0$.
+
+# Likelihood Ratio Test Statistic (Def 9.1.11)
+
+Alternatively, we can consider, $\sup_{\theta \in \Omega}f_n(x|\theta)$ rather than  $\sup_{\theta \in \Omega_0}f_n(x|\theta)$.
+
+The Likelihood Ratio Statistic is defined to be:
+
+$$\Lambda(x)=\frac{\sup_{\theta \in \Omega_0}f_n(x|\theta)}{\sup_{\theta \in \Omega}f_n(x|\theta)}$$
+
+Using the Likelihood Ratio Test Statistic $\Lambda(x)$ we reject $H_0$ if $\Lambda(x) \leq k$.
+
+Intuitively, if the max likelihood under $H_0$ is far below the overall max then we should reject $H_0$.
+
+# The t-test as a LRT: Setup
+
+Consider once again $H_0:\mu=\mu_0$ vs $H_1:\mu\neq\mu_0$ where $X's\sim N(\mu,\sigma^2), \ \mu, \sigma^2$ both are unknown.
+
+$$\Omega_0=\{(\mu,\sigma^2):\mu=\mu_0,\sigma^2>0\}$$
+$$\Omega=\Omega_0\cup\Omega_1=\{(\mu,\sigma^2):\mu=(-\infty,\infty),\sigma^2>0\}$$
+
+$$f_n(x|\theta)=f_n(x|(\mu,\sigma^2)=(2\pi\sigma^2)^{-n/2}\exp\{-\frac{1}{2}\sum\frac{(x_i\mu)^2}{\sigma^2}\}$$
+
+In order to maximize our likelihood function we essentially want to find maximum likelihood estimators of $\mu$ and $\sigma^2$ (subject to contraints).
+
+
+# The t-test as a LRT
+
+Under $\Omega_0: \hat{\mu}_0=\mu_0$; to find $\hat(\sigma)^2_0$ take deriative and set to zero $\rightarrow \hat{\sigma}^2_0=\frac{1}{n}\sum(x_i-\mu_0)^2$
+
+Under $\Omega: \hat{\mu}$ and $\hat{\sigma}^2$ are the usual MLEs: $\hat{\mu}=\bar{X}_n; \hat{\sigma}^2=\frac{1}{n}\sum(x_i-\bar{X}_n)^2$.
+
+$$\begin{aligned}
+\Lambda(x) &= \frac{f_n(x|\hat{\mu}_0,\hat{\sigma}^2_0)}{f_n(x|\hat{\mu},\hat{\sigma}^2)}\\
+&= \frac{(2\pi\frac{1}{n}\sum(x_i-\mu_0)^2)^{-n/2}\exp\{-\frac{1}{2}\sum\frac{(x_i-\mu)^2}{\frac{1}{n}\sum(x_i-\mu_0)^2}\}}{(2\pi\frac{1}{n}\sum(x_i-\bar{X}_n)^2)^{-n/2}\exp\{-\frac{1}{2}\sum\frac{(x_i-\bar{X}_n)^2}{\frac{1}{n}\sum(x_i-\bar{X}_n)^2}\}}\\
+&=\left[ \frac{\sum(x_i-\mu_0)^2}{\sum(x_i-\bar{X}_n)^2} \right]^{-n/2}
+\end{aligned}$$
+
+# The t-test as LRT: Example 9.5.12
+
+So Reject $H_0$ if $\Lambda(x)\leq k$, 
+$$\left[ \frac{\sum(x_i-\mu_0)^2}{\sum(x_i-\bar{X}_n)^2} \right]^{-n/2}\leq k$$
+
+## Is this something we recognize?
+
+1. Show that this LRT is equivalent to a one sided t-test.  Follow set up on p584 -- what do you need to fill in to show this is true?
+
+2. Exercise 9.5.17 -- Can also show this is the case for the two-sided hypothesis test.
+
+
+ 

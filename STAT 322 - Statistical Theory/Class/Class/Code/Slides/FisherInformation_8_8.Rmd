@@ -1,0 +1,67 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+# 8.8 Fisher Information
+
+Consider $X_1$ vs $\bar{X}_n$ as estimators for the mean $\mu$. 
+
+$\bar{X}_n$ is more *efficient* than $X_1$ (smaller variance among unbiased estimators)
+
+## Relative Efficiency 
+Relative Efficiency of $\bar{X}_n$ with respect to $X_1$
+
+$$\frac{Var[X_1]}{Var[\bar{X}_n]}=\frac{\sigma^2}{\sigma^2/n}=n$$
+
+There are an infinite number of unbiased estimators for $\mu$:
+$\delta(X_1,...,X_n)=\alpha_1X_1+\alpha_2X_2 +...+\alpha_nX_n$ where $\sum\alpha_i=1$
+
+## Which is the "Best" unbiased estimator?
+
+# Fisher Information
+
+- We want to describe the amout of information contained in sample data about the unknown parameter.
+
+- Intuititvely: 
+
+     + The more data, the more information, 
+     + The more precise the data, the more information.
+
+## Assume:
+
+1. $X\sim f(x|\theta)$
+2. ${X:f(x|\theta)>0}$ doesn't depend on $\theta$ (e.g. no $X\sim Unif(0,\theta)$)
+3. $f(x|\theta)$ is a twice differnetiable function of $\theta$
+
+## Define:
+$\lambda(x|\theta)=log(f(x|\theta))$; $\lambda'(x|\theta)=\frac{d}{d\theta}log(f(x|\theta))$; $\lambda''(x|\theta)=\frac{d^2}{d\theta^2}log(f(x|\theta))$
+
+#  Fisher Information
+
+Then, the Fisher Information, $I(\theta)$, in the random varible $X$ is 
+
+$$\begin{aligned}
+I(\theta) & = E_{\theta}\{\left[\lambda'(x|\theta)\right]^2\} \\
+& = \int_{S}\left[\lambda'(x|\theta)\right]^2f(x|\theta)dx \\
+\end{aligned}$$
+
+If we also assume:
+
+4. $\int f'(x|\theta)dx=0 \hspace{5mm} \forall \theta$
+5. $\int f''(x|\theta)dx=0 \hspace{5mm} \forall \theta$
+
+Then 
+
+a. $I(\theta)=Var_{\theta}\left[\lambda'(x|\theta)\right]$
+
+b. $I(\theta)=-E_{\theta}\left[\lambda''(x|\theta)\right]$
+
+# Example
+
+Assume $X\sim N(\mu, \sigma^2)$ where $\sigma^2$ is known
+
+1. Find Fisher Information for $\mu$ using (a) and (b)
+
+2. Confirm assumptions (4) and (5)

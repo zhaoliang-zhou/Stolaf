@@ -1,0 +1,78 @@
+---
+title: "12.5 Markov Chain Monte Carlo"
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+
+# Inference for a mean from a single sample
+
+What we have considered:
+
+- MLE for $\mu$
+- Frequentist CI for $\mu$ based on t-distribution
+- Bayesian Estimates and credible intervals for $\mu$ based on Normal-Gamma$^*$ 
+- Efficiency/CRLB (MLE is efficient)
+- t-test for $\mu=\mu_0$ (Likelihood Ratio Test)
+- Bayes test for $\mu$ -- Pr($H_0$ true)$^*$
+
+\small
+$^*$ We showed equivalence to Frequentist procedures in the case of non informative priors.
+
+\normalsize
+We will explore new procedures for simulating posterior distributions.  The `expland.grid` approach falls apart with more parameters.  We'll consider MCMC methods to simulate posterior distributions, and we'll start with Gibbs Sampling
+
+# Gibbs Sampling Algorithm
+
+Assume we want to simulate a joint pdf of $(X_1,X_2)$ where $f(x_1,x_2)=c\times g(x_1,x_2)$ where $g(x_1,x_2)$ is known.
+
+Example: $X_1$ and $X_2$ are $\mu$ and $\tau$
+
+$g(x_1,x_2)=$ prior $\times$ likelihood
+$c=$ proportionality constant
+
+Then $g(x_1|x_2)=c_2 h_2(x_1)$ where $h_2(x_1)=g(x_1,x_2)$ with $x_2$ fixed.  And $g(x_2|x_1)=c_1 h_1(x_2)$ where $h_1(x_2)=g(x_1,x_2)$ with $x_1$ fixed.
+
+
+If $g(x_1|x_2)$ and $g(x_2|x_1)$ are recognizable and easily sampled from, we can do this.
+
+# Extensions
+
+It can also be extended to problems with $n$ parameters:
+
+$$g(x_1|x_2,x_3,...,x_n)$$
+$$g(x_2|x_1,x_3,...,x_n)$$
+$$...$$
+$$g(x_n|x_1,x_2,...,x_{n-1})$$
+
+Example: $X\sim N(\mu,\tau)$ Normal-Gamma conjugate prior
+
+# Algorithm
+
+1. Pick a starting value $x_2^{(0)}$ for $x_2$; and set $i=0$.
+2. Simulate anew value $x_1^{(i+1)}$ from the conditional distribution of $X_1$ given $X_2=x_2^{(i)}$
+3. Simulate a new value $x_2^{(i+1)}$ from the conditional distribution of $X_2$ given $X_1=x_1^{(i+1)}$
+4. Replace $i$ by $i+1$ and return to Step (2).
+
+# Build Gibbs for one mean example (Example 12.5.1 p824)
+
+- likelihood: $X_1,...,X_n \sim N(\mu,\tau)$
+- prior for $\tau$: $\xi(\tau)\sim gamma(\alpha_0,\beta_0)$
+- prior for $\mu$ (given $\tau$): $\xi(\mu|\tau)\sim N(\mu_0,\lambda_0 \tau)$
+- posterior: $\xi(\mu,\tau|x) \propto \tau^{\alpha_1+\frac{1}{2}-1} \exp{\left(-\tau \left[\frac{1}{2} \lambda_1(\mu-\mu_1)^2+\beta_1\right]\right)}$
+
+Consider $\xi(\mu,\tau|x)$ as a function of $\mu$ for fixed $\tau$: $\xi(\mu|\tau,x)\sim N(\mu_1,\tau\lambda_1)$
+
+$$\xi(\mu|\tau,x)\propto ...$$
+
+Consider $\xi(\mu,\tau|x)$ as a function of $\tau$ for fixed $\mu$:
+$\xi(\tau|\mu,x)\sim gamma(\alpha_1+1/2,\lambda_1(\mu-\mu_1)^2/2+\beta_1)$
+
+$$\xi(\tau|\mu,x)\propto ...$$
+
+# Build Gibbs for one mean example
+
+1. Choose initial value of $\mu$
+2. Sample $\tau$ from $\xi(\tau|\mu,x)$
+3. Sample $\mu$ from $\xi(\mu|\tau,x)$
+4. Go to (2) and Repeat many times.

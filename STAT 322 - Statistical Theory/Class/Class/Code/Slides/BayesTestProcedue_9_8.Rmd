@@ -1,0 +1,131 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+```{r,include=FALSE}
+library(mosaic)
+```
+# 9.8 Bayes Test Procedures
+
+```{r}
+# The data - TV radiation example
+x <- c(0.65,0.28,0.47,0.44,0.25,1.03,0.28,0.64,0.71,0.49)
+n <- length(x)
+xbar <- mean(x)
+snsq <- (n-1)*var(x)
+```
+
+## TV Radiation Example (one-sample t-test)
+
+$H_0:\mu \leq 0.50$ assume safe levels vs $H_1:\mu > 0.5$
+
+$U=\frac{\bar{X}_n-\mu_0}{\sigma'/\sqrt{n}}$
+
+Reject $H_0$ if $U>t^{-1}_{(9)}(.95)=1.833$
+
+# P-value Interpretation (Frequentist)
+```{r}
+t.test(x,mu=.5,var.equal=TRUE,alternative="greater")
+```
+
+Interpretation of p-value: There is a 38% chance of getting a sample mean as larger or larger than 0.52 just by chance when the true mean radiation level is 0.50 mR/hr.
+
+# Loss Functions
+Consider two simple hypotheses: 
+$$H_0:\theta=\theta_0$$
+$$H_1:\theta=\theta_1$$
+
+$d_0$: decision to **not** reject $H_0$
+
+$d_1$: decision to reject $H_0$
+
+The loss, $L(\theta_i,d_i)$, that occurs when $\theta_i$ is true and decision $d_j$ is chosen is given in the table: 
+
+| | $d_0$ | $d_1$ |
+|-----|-------|-------|
+| $\theta_0$ | 0 | $\omega_0$ |
+| $\theta_1$ | $\omega_1$ | 0 |
+
+# Expected Loss
+
+- Prior probability that $H_0$ is true: $\xi_0$
+- Prior probability that $H_1$ is true: $\xi_1=1-\xi_0$
+- Expected loss of each test procedure $\delta$: $r(\delta)$
+
+$$r(\delta)=\xi_0 E(Loss|\theta=\theta_0)+\xi_1 E(Loss|\theta=\theta_1)$$
+
+$$ r(\delta)=\xi_0 \omega_0 \alpha(\delta)+\xi_1\omega_1\beta(\delta)$$
+
+- $\alpha(\delta)$: Pr(Type I error) = $Pr(d_1|\theta=\theta_0)$
+- $\beta(\delta)$: Pr(Type II error) = $Pr(d_0|\theta=\theta_1)$
+
+# Bayes Test Procedure
+A procedure $\delta$ for which $r(\delta)$ is minimized is called a **Bayes test procedure**.
+
+E.g Reject $H_0$/choose $d_1$ if 
+
+$$\begin{aligned}
+r(d_0|x)&>r(d_1|x)\\
+\omega_1 Pr(H_1 \ true |x) &>Pr(H_0 \ true|x)\\
+\omega_1[1-Pr(H_0 \ ture |x)]&> \omega_0 Pr(H_0 \ true|x)\\
+Pr(H_0 \ true|x)&< \frac{\omega_1}{\omega_0+\omega_1}\\
+\int_{\Omega_0}\xi(\theta|x)d\theta & \leq \frac{\omega_1}{\omega_0+\omega_1}
+\end{aligned}$$
+
+Choose $d_1$ if $r(d_0|x)>r(d_1|x)$, where $r(d_i|x)=\int L(\theta,d_i)\xi(\theta|x)d\theta$
+
+Reject $H_0$ if $\frac{\omega_1}{\omega_0+\omega_1} \geq Pr(H_0 \ true |x)=\int_{\Omega}\xi(\theta|x)d\theta$
+
+# TV Example
+We need $\xi(\mu|x)$ for Bayesian Inference
+
+- Likelihood: $f_n(x|\mu,\tau)=\prod N(\mu,\tau)$
+- prior: $\xi(\mu,\tau)=\xi(\tau)\xi(\mu|\tau)=gamma(\alpha_0,\beta_0)  N(\mu_0,\lambda_0 \tau)$
+
+$$\xi(\mu,\tau|x) \propto f_n(x|\mu,\tau) \xi(\mu,\tau)$$
+
+## Posterior marginal of $\mu$ (Theorem 8.6.1 p496)
+
+$U=\left(\frac{\lambda_1\alpha_1}{\beta_1}\right)^{1/2}(\mu-\mu_1)\sim t_{2\alpha_1}$
+
+- $\mu_1 = \left(\frac{\lambda_0}{\lambda_0+n}\right)\mu_0 + \left(\frac{n}{\lambda_0+n}\right)\bar{x}_n$
+- $\lambda_1=\lambda_0 +n$
+- $\beta_1 = \beta_0 + \frac{1}{2}s_n^2+\frac{n\lambda_0(\bar{x}_n-\mu_0)^2}{2(\lambda_0+n)}$
+- $\alpha_1 = \alpha_0 + n/2$
+
+# Choosing Non-Informative Prior
+Recall: When $X_i\sim N(\theta,\sigma^2)$ with $\sigma^2$ known $\xi(\theta)\sim N(\mu,\nu^2)$.  We let $\nu^2 \rightarrow \infty$ to get the non informative prior.  Then $\xi(\theta|x)\sim N(\bar{X}_n,\sigma^2/n)$
+
+### How do we pick a non-informative prior for $\mu$ and $\sigma^2$ jointly?
+
+- for mean $\mu$ consider uniform, e.g. all intervals (a, a+h) having same prior probability
+- for scale parameter $\sigma = \sqrt{\frac{1}{\tau}}$ all intervals (a, ka) having same prior probability
+
+$$\xi(\mu) =1; \xi(\tau)=\frac{1}{\tau} \rightarrow \xi(\mu,\tau)=1 \times \frac{1}{\tau}=\frac{1}{\tau}$$ 
+
+**Jeffreys Prior**:Jeffreys prior is proportional to the square root of the determinant of the Fisher Information matrix and is invariant to reparameterization.
+
+# Back to Bayesian Analysis of TV Radiation
+
+$H_0:\mu \leq \mu_0$ vs $H_1:\mu > \mu_0$
+
+Consider Pr($H_0$ true | data) and Reject $H_0$ if small. $Pr(H_0 \ true | x)=\int_{\Omega_0}\xi(\mu|x)d\mu$
+
+1. Non-informative Prior: $\xi(\mu,\tau)=\xi(\mu|\tau)\xi(\tau)=N(\mu_0,\lambda_0\tau) gamma(\alpha_0,\beta_0)$
+
+For what values of $\mu_0, \lambda_0, \alpha_0, \beta_0$ would $\xi(\mu,\tau)=1/\tau$ (Jeffreys Prior)?
+
+2. Find the values of $\mu_1, \lambda_1, \alpha_1, \beta_1$ using the non informative prior.
+
+3. Using these posterior values show the equivalence of the Bayes Test Procedure using Jeffreys prior to the frequentist result ($U\sim t_{(n-1)}$)
+
+4. Compare the posterior probability to p-value (using R).
+
+# And More 
+
+5. Repeat using informative hyper parameters for the conjugate prior relationship.
+
+6. Show equivalence with non informative prior to the two-sided t-test. ($\mu_0 = .25; \lambda_0 = 4; \alpha_0 = 2; \beta_0 = 0.5$)
+
+

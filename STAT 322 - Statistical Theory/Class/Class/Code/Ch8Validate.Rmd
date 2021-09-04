@@ -1,0 +1,90 @@
+---
+title: "Chapter 8 Simulations"
+author: "Katie Ziegler-Graham"
+date: "4/7/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+There are 5 properties from Chapter 8 that we can validate through simulation in R.  
+
+1. If $Z\sim N(0,1)$ then $Z^2 \sim \chi^2_{(1)}$
+
+2. If $Z_1, Z_2, ..., Z_n \sim N(0,1)$ then $\sum _{i=1}^n Z_i^2 \sim \chi^2_{(n)}$
+
+3. If $X_1, X_2, ..., X_n \sim N(\mu,\sigma^2)$ then $\bar{X}_n$ and $\hat{sigma}^2$ are independent random variables.
+
+4. Confirm the 95% Confidence interval for $\sigma^2$.
+
+[In class we showed that a 95% CI for $\sigma$ was $(\sqrt{\frac{(n-1)s^2}{\chi^2_{1-\alpha/2,n-1}}}),(\sqrt{\frac{(n-1)s^2}{\chi^2_{\alpha/2,n-1}}})$ where $s^2$ is the usual variance cacluation dividing by $(n-1)$.]
+
+5. Confirm that $\frac{\bar{X_n}-\mu}{s/\sqrt{n}}\sim t_(n-1)$.  Note that $\hat{sigma}^2=\frac{(n-1)}{n}s^2$
+
+
+# 1. 
+```{r}
+z <- rnorm(1000,mean=0,sd=1) #generate 1000 normals
+z2 <- z*z #square them
+x <- seq(0,10,length=1000) 
+chi <- dchisq(x,df=1)
+hist(z2,probability=TRUE) # comapare the historgram of the random normals
+lines(x,chi) # to the chi-squre with 1 df distribution
+````
+
+# 2.
+```{r}
+chi1 <- rchisq(10000,df=1) #since a normal squared is chi-square we can jsut start there
+chimat1 <- matrix(chi1,ncol=10) # since we want to sum a sequence of z^2 we can set this up in a matrix.
+chisum1 <- apply(chimat1,1,sum) # and then sum columns
+x <- seq(0,20,length=1000)
+chi10 <- dchisq(x,df=10) # the sum of 10 chi(1) will be chi(10)
+hist(chisum1,probability=TRUE)
+lines(x,chi10)
+
+#a twist
+chi <- rchisq(10000,df=3) #alternatively we can start with generating 10000 chi-squares with 3 df for fun.
+chimat <- matrix(chi,ncol=10)
+chisum <- apply(chimat,1,sum)
+x <- seq(0,60,length=1000)
+chi30 <- dchisq(x,df=30)
+hist(chisum,probability=TRUE)
+lines(x,chi30)
+```
+
+# 3.
+```{r}
+z <- rnorm(10000,mean=0,sd=1)
+zmat <- matrix(z,ncol=10)
+zmean <- apply(zmat,1,mean)
+zvar <- apply(zmat,1,var)
+zsigma2 <- 9*zvar/10
+cor(zmean,zsigma2)
+```
+
+# 4. 
+```{r}
+x <- rnorm(10000,mean=20,sd=5)
+xmat <- matrix(x,ncol=10)
+xvar <- apply(xmat,1,var)
+xsig2hat <- 9*xvar/10
+lb <- 10*xsig2hat/qchisq(.975,df=9)
+ub <- 10*xsig2hat/qchisq(.025,df=9)
+sum(lb<25 & ub>25)/1000
+```
+
+# 5. 
+```{r}
+x <- rnorm(5000,mean=20,sd=5)
+xmat <- matrix(x,ncol=5)
+xmean <- apply(xmat,1,mean)
+xsd <- apply(xmat,1,sd)
+tstat <- (xmean-20)/(xsd/sqrt(5))
+z <- seq(-3,3,length=1000)
+znorm <- dnorm(z,mean=0,sd=1)
+par(mfrow=c(1,2))
+hist(tstat,probability=TRUE,ylim=c(0,max(znorm)))
+lines(z,znorm)
+qqnorm(tstat)
+```
+

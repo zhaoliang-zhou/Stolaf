@@ -1,0 +1,77 @@
+---
+title: "HW 6 R"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Stat 322 HW6 R problems
+
+Use R to numerically validate the following theorems and results.  For each problem, be sure to hand in your complete R code, any useful numerical results, and well-labeled plots. 
+
+1. If $X_1,...,X_n \stackrel{iid}{\sim} N(\mu,\sigma^2)$, then $\frac{\sum(X_i-\bar{x}_n)^2}{\sigma^2} \sim \chi^2_{n-1}$
+
+```{r}
+y <- rnorm(10000,mean=4,sd=2)
+ymat <- matrix(y,ncol=10)
+ymean <- apply(ymat,1,mean)
+ydiff <- ymat-ymean
+ydiff2 <- ydiff^2
+ydiffsum <-apply(ydiff2,1,sum)
+mychi <- ydiffsum/4
+
+hist(mychi,probability=TRUE,ylim=c(0,.12))
+x <- seq(0,30,length=1000)
+chi9 <- dchisq(x,df=9)
+lines(x,chi9)
+```
+
+2. If $Z \sim N(0,1), Y\sim \chi^2_{n}$ and $Z$ and $Y$ are independent, then $U\sim \frac{Z}{\sqrt{Y/n}}\sim t_n$.
+
+```{r}
+z <- rnorm(10000,mean=0,sd=1)
+y <- rchisq(10000,df=10)
+u <- z / sqrt(y/10)
+x <- seq(-5,5,length=1000)
+tn <- dt(x,df=10) 
+hist(u,probability=TRUE,ylim=c(0,.4))
+lines(x,tn)
+
+```
+
+
+3. If $X_1 \sim \chi^2_{n_1},X_2 \sim \chi^2_{n_2},...X_k \sim \chi^2_{n_k}$, and $X_1,X_2,...,X_k$ are independent,\\
+then $\sum_{i=1}^k X_i \sim \chi^2_{\Sigma n_i}$
+
+```{r}
+chi1 <- rchisq(1000,df=1)
+chi2 <- rchisq(1000,df=3)
+chi3 <- rchisq(1000,df=5)
+chi4 <- rchisq(1000,df=7)
+chi5 <- rchisq(1000,df=9)
+chi6 <- rchisq(1000,df=11)
+
+
+tot=1+3+5+7+9+11
+
+chisum1 <- chi1+chi2+chi3+chi4+chi5+chi6
+x <- seq(0,80,length=1000)
+chi_tot <- dchisq(x,df=tot) 
+hist(chisum1,probability=TRUE)
+lines(x,chi_tot)
+
+```
+
+
+4. From Example 8.5.11, if $X_1, X_2 \sim Uniform(\theta -\frac{1}{2}, \theta +\frac{1}{2})$,  then the interval between $y_1=\mbox{min}(x_1,x_2)$ and $y_2=\mbox{max}(x_1,x_2)$ is a 50\% confidence interval for $\theta$.
+
+```{r}
+theta <- 5
+x1 <- runif(10000,theta-.5,theta+.5) 
+x2 <- runif(10000,theta-.5,theta+.5) 
+xmat <- cbind(x1,x2)
+y1 <- apply(xmat,1,min)
+y2 <- apply(xmat,1,max)
+sum(y1<theta & theta<y2)/10000
+```
+

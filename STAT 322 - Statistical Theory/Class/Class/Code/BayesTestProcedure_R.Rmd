@@ -1,0 +1,147 @@
+---
+title: "Bayes Test Procedure in R"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r,include=FALSE}
+library(mosaic)
+```
+# TV Radiation Example
+
+```{r}
+# The data - TV radiation example
+x <- c(0.65,0.28,0.47,0.44,0.25,1.03,0.28,0.64,0.71,0.49)
+n <- length(x)
+xbar <- mean(x)
+snsq <- (n-1)*var(x)
+```
+
+$H_0:\mu \leq \mu_0$ vs $H_1:\mu > \mu_0$
+
+Consider Pr($H_0$ true | data) and Reject $H_0$ if small. $Pr(H_0 \ true | x)=\int_{\Omega_0}\xi(\mu|x)d\mu$
+
+
+# Non-informative Prior:
+
+$\xi(\mu,\tau)=\xi(\mu|\tau)\xi(\tau)=N(\mu_0,\lambda_0\tau) gamma(\alpha_0,\beta_0)$
+
+For what values of $\mu_0, \lambda_0, \alpha_0, \beta_0$ would $\xi(\mu,\tau)=1/\tau$ (Jeffreys Prior)?
+
+```{r}
+# Usual improper prior hyperparameters
+mu0 <- 0
+lambda0 <- 0
+alpha0 <- -0.5
+beta0 <- 0
+```
+
+
+2. Find the values of $\mu_1, \lambda_1, \alpha_1, \beta_1$ using the non informative prior.
+
+```{r}
+mu1 <- (lambda0*mu0+n*xbar)/(lambda0+n)
+lambda1 <- lambda0 + n
+alpha1 <- alpha0 + (n/2)
+beta1 <- beta0 + (snsq/2) + ((n*lambda0*(xbar-mu0)^2)/(2*(lambda0+n)))
+
+mu1;lambda1;alpha1;beta1
+```
+
+3. Using these posterior values show the equivalence of the Bayes Test Procedure using Jeffreys prior to the frequentist result ($U\sim t_{(n-1)}$)
+
+```{r}
+# Marginal posterior for mu
+mu <- seq(.20,.80,length=1000)
+dmu <- mu[2]-mu[1]
+U1 <- sqrt((lambda1*alpha1)/beta1)*(mu-mu1)
+y1 <- dt(U1,2*alpha1)
+
+# Posterior probability that Ho true
+Uat5 <- sqrt((lambda1*alpha1)/beta1)*(0.50-mu1)
+ht5 <- dt(Uat5,2*alpha1)/(sum(y1)*dmu)
+probHotrue <- pt(Uat5,2*alpha1)
+probHotrue
+```
+
+
+4. Compare the posterior probability to p-value (using R).
+
+```{r}
+t.test(x,mu=.5,var.equal=TRUE,alternative="greater")
+```
+
+
+5. Repeat using informative hyper parameters for the conjugate prior relationship. ($\mu_0 = .25; \lambda_0 = 4; \alpha_0 = 2; \beta_0 = 0.5$)
+
+```{r}
+# Informative prior hyperparameters
+mu0 <- .25
+lambda0 <- 4
+alpha0 <- 2
+beta0 <- 0.5
+```
+
+```{r}
+# Posterior hyperparameters
+mu1 <- (lambda0*mu0+n*xbar)/(lambda0+n)
+lambda1 <- lambda0 + n
+alpha1 <- alpha0 + (n/2)
+beta1 <- beta0 + (snsq/2) + ((n*lambda0*(xbar-mu0)^2)/(2*(lambda0+n)))
+
+# Marginal posterior for mu
+U1b <- sqrt((lambda1*alpha1)/beta1)*(mu-mu1)
+y1b <- dt(U1b,2*alpha1)
+
+# Posterior probability that Ho true
+Uat5b <- sqrt((lambda1*alpha1)/beta1)*(0.50-mu1)
+ht5b <- dt(Uat5b,2*alpha1)/(sum(y1b)*dmu)
+probHotrue <- pt(Uat5b,2*alpha1)
+probHotrue
+```
+
+```{r}
+# Superimposed posteriors for mu
+plot(mu,y1b/(sum(y1b)*dmu),type="l",xlab="mu",ylab="density",
+  xlim=c(.2,.8),
+  ylim=c(0,max(y1b/(sum(y1b)*dmu),y1/(sum(y1)*dmu))),
+  main="Posterior dstns of mu (Noninformative prior dashed)")
+lines(mu,y1/(sum(y1)*dmu),lty=2)
+lines(c(.5,.5),c(0,max(ht5,ht5b)))
+```
+
+6. Show equivalence with non informative prior to the two-sided t-test. 
+
+
+```{r}
+# Usual improper prior hyperparameters
+mu0 <- 0
+lambda0 <- 0
+alpha0 <- -0.5
+beta0 <- 0
+
+# Posterior hyperparameters
+mu1 <- (lambda0*mu0+n*xbar)/(lambda0+n)
+lambda1 <- lambda0 + n
+alpha1 <- alpha0 + (n/2)
+beta1 <- beta0 + (snsq/2) + ((n*lambda0*(xbar-mu0)^2)/(2*(lambda0+n)))
+
+# Marginal posterior for mu
+Uat45 <- sqrt((lambda1*alpha1)/beta1)*(0.45-mu1)
+ht45 <- dt(Uat45,2*alpha1)/(sum(y1)*dmu)
+Uat55 <- sqrt((lambda1*alpha1)/beta1)*(0.55-mu1)
+ht55 <- dt(Uat55,2*alpha1)/(sum(y1)*dmu)
+plot(mu,y1/(sum(y1)*dmu),type="l",xlab="mu",ylab="density",
+  main="Posterior dstn of mu (Noninformative prior)")
+lines(c(.45,.45),c(0,ht45))
+lines(c(.55,.55),c(0,ht55))
+
+# Posterior probability that Ho true
+probHotrue <- pt(Uat55,2*alpha1)-pt(Uat45,2*alpha1)
+probHotrue
+
+# Compare with frequentist t-test for mu
+t.test(x,mu=0.50)
+```
+

@@ -1,0 +1,218 @@
+---
+output: beamer_presentation
+editor_options: 
+  chunk_output_type: console
+---
+```{r,include=FALSE}
+library(mosaic)
+```
+
+# 9.1 Testing Hypotheses
+
+Example: National Assessment of Adult Literacy (NAAL) survey scores (0-500)
+
+- 233: can add numbers of 2 checks on a bank deposit slip
+- 325: can price a meal from a menu
+- 375: can trasnform from cents/oz to dollar/lb
+
+275: can Balance a check book
+
+We collect data from $n=840$ men ages 21-25 (assume $\sigma=59, \bar{X}_n=272$)
+
+# Hypothesis Test Assumptions
+
+$$X\sim N(275,59^2)$$
+
+pvalue$=Prob(\bar{X}_n\leq 272|X\sim N(275,59^2))$
+
+$$H_0:\mu \geq 275$$
+$$H_A:\mu < 275$$
+
+our test statistic under the $H_0$: $\bar{X}_n\sim N(275,59^2/840)$
+
+$z=\frac{\bar{x}-\mu}{\sigma/n}\sim N(0,1)$ under $H_0$
+
+$z_{obs}=-1.474$ and the pvalue (one sided) is 0.0708.
+
+
+# Using R
+```{r,fig.height=2,fig.width=2}
+xpnorm(272,275,59/sqrt(840))
+pnorm(272,275,59/sqrt(840))
+```
+
+
+# Applied to 9.1
+
+$$\begin{aligned}
+H_0 & = \theta \in \Omega_0 \\
+H_1 & = \theta \in \Omega_1 \\
+\end{aligned}$$
+
+Where $\Omega_0 \cup \Omega_1 =\Omega:$ the entire sample space for $\theta$
+
+Our case the context of 9.1
+$$\begin{aligned}
+\Omega_0 & = [275,500] \\
+\Omega_1 & = [0,275) \\
+\end{aligned}$$
+
+Test statistic: $T=r(x)$
+
+Critical region: Reject $H_0$ if $T\leq -1.645$
+
+# R
+```{r,fig.height=2,fig.width=2}
+xqnorm(.05)
+```
+
+# Power Function
+
+Def: The probability that a test procedure $\delta$ rejects $H_0$ for each value of $\theta \in \Omega$
+
+$\pi(\theta|\delta)=Pr(x\in C|\theta)$ for $\theta \in \Omega$
+
+An ideal power function:
+
+$$\begin{aligned}
+\pi(\theta|\delta) & = 0 \ \mbox{for} \ \theta \in \Omega_0 \\
+\pi(\theta|\delta) & = 1 \ \mbox{for} \ \theta \in \Omega_1 \\
+\end{aligned}$$
+
+BUT probabilities of Error exist.
+
+# Errors In Hypothese thests
+
+| | $H_0$ True | $H_0$ False |
+|-----------------|----------------|--------------------|
+Accept $H_0$ | OK | Type II Error|
+Reject $H_0$ | Type I Error | OK |
+
+Prob(Type I Error)= Prob(Reject $H_0$ when $H_0$ is true) 
+
+$$=\pi(\theta|\delta) \ \mbox{for} \ \theta \in \Omega_0 $$
+
+Prob(Type II Error)= Prob(Do not reject $H_0$ when $H_0$ is false) 
+$$=1- \pi(\theta|\delta) \ \mbox{for} \ \theta \in \Omega_1 $$
+
+# Scenarios
+
+| | Innocent | Gulity |
+|-----------------|----------------|--------------------|
+Acquit | OK | Type II Error|
+Convict | Type I Error | OK |
+
+## Which error is worse?
+Convict an innocent person? Or let a criminal run free?
+
+| | Drug does not work | Drug works |
+|-----------------|----------------|--------------------|
+Don't Approve | OK | Type II Error|
+Approve | Type I Error | OK |
+
+## Which error is worse?
+Type I Error: Drug is marketed but doesn't really work.
+
+Type II Error: Drug that could save lives is not available
+
+# Hypothesis Testing Strategy
+Set upper bound for Type I error.  Then among those tests, pick one that maximizes Power (minimizes Type II Error)
+
+Require:
+$$\pi(\theta|\delta) \leq \alpha_0 \ \mbox{for} \ \theta \in \Omega_0 $$
+
+Size $\alpha(\delta)$ of a test $\delta$
+
+$$\alpha(\delta)=\sup_{\theta \in \Omega_0} \pi(\theta|\delta)$$
+
+# Checkbook example
+
+- Find P(Type I Error)
+
+- Find Size of the test if $\mu=275$
+
+- Find power of the test if $\mu=270$
+
+# Pr(Type I Error)
+
+Pr(Type I Error)=Pr(Reject $H_0|H_0$ is tre)
+
+$$\begin{aligned}
+&= Pr(z\leq 1.645|\mu=275)\\
+&=Pr(\frac{\bar{X}_n-275}{59/\sqrt{840}}<-1.645)\\
+&=Pr(\bar{X}_n<271.65)\\
+\end{aligned}$$
+
+So $\delta:\{x:\bar(x)_n<271.65\}=\{x:z=\frac{\bar{X}_n-\mu}{\sigma/\sqrt{n}}\}$
+
+# Size of the test
+
+$$\begin{aligned}
+\alpha(\delta)&=\sup_{\mu\geq275}\pi(\mu|\delta)\\
+&=\sup_{\mu}Pr(\bar{X}_n<271.65|\mu\geq275)\\
+&=Pr(\bar{X}_n<271.65|\mu=275)\\
+&=Pr(Z<\frac{271.65-275}{59/\sqrt{840}})\\
+&=Pr(Z<-1.645)=0.05\\
+\end{aligned}$$
+
+# Power of the test for $\mu$=270
+
+$$\begin{aligned}
+\pi(\mu|\delta) &=Pr(\bar{X}_n<271.65|\mu=270)\\
+&=Pr(Z<\frac{271.65-270}{59/\sqrt{840}})\\
+&=Pr(Z<0.81)=0.791\\
+\end{aligned}$$
+
+```{r}
+pnorm(0.81)
+```
+
+# Plot of Type I error, Type II Error, and Power
+```{r,echo=FALSE,warning=FALSE,fig.height=3,fig.width=4}
+funcShaded <- function(x) {
+    y <- dnorm(x, mean = 275, sd = 59/sqrt(840))
+    y[x < 260 | x > 271.65] <- NA
+    return(y)
+}
+
+funcShaded2 <- function(x) {
+    y <- dnorm(x, mean = 270, sd = 59/sqrt(840))
+    y[x < 260 | x > 271.65] <- NA
+    return(y)
+}
+funcShaded3 <- function(x) {
+    y <- dnorm(x, mean = 270, sd = 59/sqrt(840))
+    y[x < 271.65 | x > 275] <- NA
+    return(y)
+}
+
+myplot <- ggplot(data.frame(x = c(260,285)), aes(x = x)) +
+        stat_function(fun = dnorm, args = list(275, 59/sqrt(840)),
+                      aes(colour = "mean=275"), size = 1.5) +
+        stat_function(fun = dnorm, args = list(270, 59/sqrt(840)),
+                      aes(colour = "mean=270"), size = 1.5) +
+        scale_x_continuous(name = "Probability",
+                              breaks = seq(0, 1, 0.2),
+                              limits=c(260,285)) +
+        scale_y_continuous(name = "Frequency") +
+        ggtitle("Null and Alternative ") +
+        scale_colour_brewer(palette="Accent") +
+        labs(colour = "Groups") + 
+   stat_function(fun=funcShaded2, geom="area", fill="#84CA72", alpha=0.2) +
+   stat_function(fun=funcShaded, geom="area", fill="#666666", alpha=0.2) +
+   stat_function(fun=funcShaded3, geom="area", fill="#FDC086", alpha=0.2)
+
+myplot
+
+```
+
+
+# How do the following effect Power
+
+Power=1-Pr(Type II Error) = Probability of corretly rejeting $H_0$
+
+- $\alpha$: as $\alpha$ increases, Power increases
+- $\sigma$: as $\sigma$ decreases, Power increases
+- n: as n increases, Power increases
+- $\mu$: as $\mu$ decreases(futher away from $\mu_0$), Power increases
+
